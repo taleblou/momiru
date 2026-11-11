@@ -1,0 +1,11 @@
+# SPDX-FileCopyrightText: 2026 Morteza Taleblou
+# SPDX-FileCopyrightText: 2026 Mitra Daneshmand
+# SPDX-License-Identifier: MIT
+* text=auto
+*.rs text eol=lf
+*.toml text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.sh text eol=lf
+*.lock text eol=lf

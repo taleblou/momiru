@@ -1,0 +1,28 @@
+name: Release Verification
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify-package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Install pinned Rust
+        run: rustup toolchain install 1.99.1 --profile minimal --component clippy --component rustfmt
+      - name: Verify default and AOT tests
+        run: |
+          cargo test --locked
+          cargo test --locked --all-features
+      - name: Verify distributable crate
+        run: cargo package --locked
+      - name: Upload crate archive for maintainer review
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: momiru-crate
+          path: target/package/momiru-*.crate
+          if-no-files-found: error

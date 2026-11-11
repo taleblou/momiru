@@ -1,0 +1,32 @@
+name: Bug report
+description: Report a reproducible behavior or safety defect
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: dropdown
+    id: module
+    attributes:
+      label: Module
+      options: [tensor, tensor_light, build-or-infrastructure]
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: Include minimal Rust code and exact Cargo command (remove secrets).
+    validations:
+      required: true
+  - type: textarea
+    id: expectation
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Commit and Rust version
+      placeholder: "commit SHA, rustc --version, target triple"
+    validations:
+      required: true

@@ -4,6 +4,8 @@
 
 <div align="center">
 
+<img src="assets/momiru.svg" alt="Momiru logo: Rust Orange gear with an M and circuit traces" width="184" height="184" />
+
 # Momiru
 
 ### A performance-driven, Rust-native foundation for a complete AI framework

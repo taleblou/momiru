@@ -1,0 +1,28 @@
+name: Feature request
+description: Suggest a scoped API or architecture improvement
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: dropdown
+    id: module
+    attributes:
+      label: Owning module
+      options: [tensor, tensor_light, cross-module-architecture, tooling]
+    validations:
+      required: true
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Problem and motivation
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: API proposal, constraints, and alternatives
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: Correctness, compatibility and performance considerations

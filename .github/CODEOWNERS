@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: MIT
+# Project co-founders and co-owners: Morteza Taleblou and Mitra Daneshmand.
+# GitHub reviews currently use @taleblou; add the second co-owner GitHub handle
+# after their repository permission is configured.
+# Default maintainer review; adjust with actual GitHub accounts as team grows.
+* @taleblou
+/src/tensor/ @taleblou
+/src/tensor_light/ @taleblou
+/build.rs @taleblou
+/.github/ @taleblou

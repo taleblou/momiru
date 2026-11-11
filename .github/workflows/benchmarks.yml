@@ -1,0 +1,32 @@
+name: Offline Benchmarks
+on:
+  workflow_dispatch:
+    inputs:
+      samples:
+        description: "Elements for scalar CPU baseline (range 1..16777216)"
+        required: true
+        default: "8192"
+        type: string
+permissions:
+  contents: read
+jobs:
+  cpu:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Install pinned Rust
+        run: rustup toolchain install 1.99.1 --profile minimal --component clippy --component rustfmt
+      - name: Display environment
+        run: |
+          rustc --version --verbose
+          cargo --version
+          uname -a
+          lscpu
+      - name: Build all offline benchmark targets
+        run: cargo check --locked --benches
+      - name: Run sample-size-controlled scalar baseline
+        env:
+          BENCH_N: ${{ inputs.samples }}
+        run: cargo bench --locked --bench tensor_cpu_baseline -- "$BENCH_N"

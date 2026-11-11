@@ -1,0 +1,154 @@
+# SPDX-FileCopyrightText: 2026 Morteza Taleblou
+# SPDX-FileCopyrightText: 2026 Mitra Daneshmand
+# SPDX-License-Identifier: MIT
+
+[package]
+name = "momiru"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.99.1"
+authors = ["Morteza Taleblou", "Mitra Daneshmand"]
+license = "MIT"
+description = "Independent generic-ND and fixed-rank f32 tensor modules with UASDEA execution"
+repository = "https://github.com/taleblou/momiru"
+readme = "README.md"
+build = "build.rs"
+keywords = ["tensor", "rust", "numerics", "cpu", "uasdea"]
+categories = ["science", "data-structures"]
+
+[lib]
+name = "momiru"
+path = "src/lib.rs"
+
+[features]
+default = []
+aot = []
+
+[dependencies]
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+overflow-checks = false
+debug-assertions = false
+incremental = false
+debug = 0
+strip = "none"
+rpath = false
+
+[[bench]]
+name = "tensor_cpu_activation_same_shape"
+path = "benches/tensor_cpu_activation_same_shape.rs"
+harness = false
+
+[[bench]]
+name = "tensor_cpu_axis_reduce_same_shape"
+path = "benches/tensor_cpu_axis_reduce_same_shape.rs"
+harness = false
+
+[[bench]]
+name = "tensor_cpu_baseline"
+path = "benches/tensor_cpu_baseline.rs"
+harness = false
+
+[[bench]]
+name = "tensor_cpu_f64_linalg"
+path = "benches/tensor_cpu_f64_linalg.rs"
+harness = false
+
+[[bench]]
+name = "tensor_cpu_gemv_reduce"
+path = "benches/tensor_cpu_gemv_reduce.rs"
+harness = false
+
+[[bench]]
+name = "tensor_cpu_graph_replay"
+path = "benches/tensor_cpu_graph_replay.rs"
+harness = false
+
+[[bench]]
+name = "tensor_cpu_isa"
+path = "benches/tensor_cpu_isa.rs"
+harness = false
+
+[[bench]]
+name = "tensor_cpu_log_softmax_same_shape"
+path = "benches/tensor_cpu_log_softmax_same_shape.rs"
+harness = false
+
+[[bench]]
+name = "tensor_cpu_logsumexp_same_shape"
+path = "benches/tensor_cpu_logsumexp_same_shape.rs"
+harness = false
+
+[[bench]]
+name = "tensor_cpu_matmul"
+path = "benches/tensor_cpu_matmul.rs"
+harness = false
+
+[[bench]]
+name = "tensor_cpu_plan_validation"
+path = "benches/tensor_cpu_plan_validation.rs"
+harness = false
+
+[[bench]]
+name = "tensor_cpu_pointwise_same_shape"
+path = "benches/tensor_cpu_pointwise_same_shape.rs"
+harness = false
+
+[[bench]]
+name = "tensor_cpu_shape_dtype_ops"
+path = "benches/tensor_cpu_shape_dtype_ops.rs"
+harness = false
+
+[[bench]]
+name = "tensor_cpu_stable_same_shape"
+path = "benches/tensor_cpu_stable_same_shape.rs"
+harness = false
+
+[[bench]]
+name = "tensor_host_creation"
+path = "benches/tensor_host_creation.rs"
+harness = false
+
+[[bench]]
+name = "tensor_light_canonical_cpu_reference"
+path = "benches/tensor_light_canonical_cpu_reference.rs"
+harness = false
+
+[[bench]]
+name = "tensor_light_host_creation"
+path = "benches/tensor_light_host_creation.rs"
+harness = false
+
+[[bench]]
+name = "tensor_light_tensor_hotpaths"
+path = "benches/tensor_light_tensor_hotpaths.rs"
+harness = false
+
+[[bench]]
+name = "tensor_light_tensor_scaling"
+path = "benches/tensor_light_tensor_scaling.rs"
+harness = false
+
+[[bench]]
+name = "tensor_light_tensor_workloads"
+path = "benches/tensor_light_tensor_workloads.rs"
+harness = false
+
+[[bench]]
+name = "tensor_tensor_hotpaths"
+path = "benches/tensor_tensor_hotpaths.rs"
+harness = false
+
+[[bench]]
+name = "tensor_tensor_scaling"
+path = "benches/tensor_tensor_scaling.rs"
+harness = false
+
+[[bench]]
+name = "tensor_tensor_workloads"
+path = "benches/tensor_tensor_workloads.rs"
+harness = false

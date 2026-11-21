@@ -358,11 +358,6 @@ impl FrozenExecutionPlan {
     }
 
     #[inline(always)]
-    pub(super) fn has_event(&self, id: EventId) -> bool {
-        self.find_event(id).is_some()
-    }
-
-    #[inline(always)]
     pub(super) fn find_node(&self, id: NodeId) -> Option<&FrozenNode> {
         self.nodes.get(id as usize).filter(|item| item.id == id)
     }
@@ -570,7 +565,7 @@ impl FrozenExecutionPlan {
         match arena.class {
             MemoryClass::DeviceLocal => {
                 if arena.device_allocation == DeviceAllocationPolicy::MulticastMapped {
-                    arena.multicast_devices.iter().any(|&d| d == device_ordinal)
+                    arena.multicast_devices.contains(&device_ordinal)
                 } else {
                     arena.device_ordinal == Some(device_ordinal)
                 }
@@ -680,13 +675,12 @@ impl FrozenExecutionPlan {
                     return Err(PlanError::InvalidGpuExecutionContext);
                 }
             }
-            if context.persisting_l2_reservation_bytes > 0 {
-                if !gpu.features.contains(gpu_feature::PERSISTING_L2)
-                    || context.persisting_l2_reservation_bytes > gpu.max_persisting_l2_bytes
+            if context.persisting_l2_reservation_bytes > 0
+                && (!gpu.features.contains(gpu_feature::PERSISTING_L2)
+                    || context.persisting_l2_reservation_bytes > gpu.max_persisting_l2_bytes)
                 {
                     return Err(PlanError::InvalidGpuExecutionContext);
                 }
-            }
             if let Some(workqueue) = context.workqueue {
                 if context.sm_partition.kind != SmPartitionKind::GreenContext
                     || !gpu.features.contains(gpu_feature::GREEN_CONTEXT_WORKQUEUE)
@@ -711,15 +705,15 @@ impl FrozenExecutionPlan {
                         || part.sm_count < gpu.min_sm_partition_size
                         || part.sm_count > gpu.sm_count
                         || part.coscheduled_sm_count == 0
-                        || part.coscheduled_sm_count % gpu.sm_coscheduled_alignment != 0
+                        || !part.coscheduled_sm_count.is_multiple_of(gpu.sm_coscheduled_alignment)
                         || part.preferred_coscheduled_sm_count < part.coscheduled_sm_count
-                        || part.preferred_coscheduled_sm_count % part.coscheduled_sm_count != 0
+                        || !part.preferred_coscheduled_sm_count.is_multiple_of(part.coscheduled_sm_count)
                     {
                         return Err(PlanError::InvalidSmPartition);
                     }
                     if !part.allow_backfill
-                        && (part.sm_count % part.coscheduled_sm_count != 0
-                            || part.sm_count % gpu.sm_coscheduled_alignment != 0)
+                        && (!part.sm_count.is_multiple_of(part.coscheduled_sm_count)
+                            || !part.sm_count.is_multiple_of(gpu.sm_coscheduled_alignment))
                     {
                         return Err(PlanError::InvalidSmPartition);
                     }
@@ -1465,7 +1459,7 @@ pub(super) fn physical_minimum_bytes(
     base_offset_bytes: usize,
 ) -> Result<Option<usize>, PlanError> {
     let element_bytes = dtype.size_bytes();
-    if base_offset_bytes % element_bytes != 0 {
+    if !base_offset_bytes.is_multiple_of(element_bytes) {
         return Err(PlanError::InvalidPhysicalStorage);
     }
     match layout.kind {
@@ -1940,7 +1934,7 @@ pub(super) fn validate_operation_io_specs(
                 if output.shape.dim(d) != Some(expected) {
                     return Err(PlanError::InvalidOperationSpec);
                 }
-                if (before != 0 || after != 0) {
+                if before != 0 || after != 0 {
                     match spec.mode {
                         PadMode::Constant => {}
                         PadMode::Replicate | PadMode::Circular => {
@@ -2246,13 +2240,12 @@ pub(super) fn validate_operation_io_specs(
             // flattened C-order index over ALL axes (rank0 -> index zero).
             // Explicit empty is not an arg reduction. Explicit multi-axis
             // arg reductions are outside this release's index ABI.
-            if matches!(kind, ReductionKind::ArgMin | ReductionKind::ArgMax) {
-                if axes.is_explicit_empty() ||
-                    (matches!(axes, AxisSelector::Explicit(_)) && reduced != 1)
+            if matches!(kind, ReductionKind::ArgMin | ReductionKind::ArgMax)
+                && (axes.is_explicit_empty() ||
+                    (matches!(axes, AxisSelector::Explicit(_)) && reduced != 1))
                 {
                     return Err(PlanError::InvalidOperationSpec);
                 }
-            }
             let expected_rank = if keep_dims { input_rank } else { input_rank - reduced };
             if output.shape.rank() != expected_rank {
                 return Err(PlanError::InvalidOperationSpec);
@@ -3558,11 +3551,10 @@ impl FrozenExecutionPlan {
             i += 1;
         }
 
-        if assumptions.unchecked_indexing || assumptions.assert_unchecked_invariants {
-            if self.seal.verification_hash_hi == 0 && self.seal.verification_hash_lo == 0 {
+        if (assumptions.unchecked_indexing || assumptions.assert_unchecked_invariants)
+            && self.seal.verification_hash_hi == 0 && self.seal.verification_hash_lo == 0 {
                 return Err(PlanError::InvalidKernelAssumption);
             }
-        }
         Ok(())
     }
 
@@ -5170,8 +5162,8 @@ impl FrozenExecutionPlan {
                 prior += 1;
             }
             let storage = self.find_storage(access.storage).ok_or(PlanError::MissingStorage)?;
-            let in_io = cpu.io.input_storages.iter().any(|&id| id == access.storage)
-                || cpu.io.output_storages.iter().any(|&id| id == access.storage);
+            let in_io = cpu.io.input_storages.contains(&access.storage)
+                || cpu.io.output_storages.contains(&access.storage);
             if !in_io {
                 return Err(PlanError::InvalidCpuTuning);
             }
@@ -5216,7 +5208,7 @@ impl FrozenExecutionPlan {
         {
             return Err(PlanError::CpuFeatureContractMismatch);
         }
-        if (cpu.simd_bytes > 0 && cpu.simd_bytes % 16 != 0)
+        if (cpu.simd_bytes > 0 && !cpu.simd_bytes.is_multiple_of(16))
             || cpu.vector_unroll == 0
             || cpu.scalar_unroll == 0
             || cpu.software_pipeline_stages == 0
@@ -5226,9 +5218,9 @@ impl FrozenExecutionPlan {
             || cpu.micro_m == 0
             || cpu.micro_n == 0
             || cpu.micro_k == 0
-            || cpu.tile_m % cpu.micro_m != 0
-            || cpu.tile_n % cpu.micro_n != 0
-            || cpu.tile_k % cpu.micro_k != 0
+            || !cpu.tile_m.is_multiple_of(cpu.micro_m)
+            || !cpu.tile_n.is_multiple_of(cpu.micro_n)
+            || !cpu.tile_k.is_multiple_of(cpu.micro_k)
             || (cpu.prefetch_kind == PrefetchKind::None && cpu.prefetch_distance_bytes != 0)
             || (cpu.prefetch_kind != PrefetchKind::None && cpu.prefetch_distance_bytes == 0)
             || ((cpu.pack_a || cpu.pack_b) && cpu.pack_alignment_bytes == 0)
@@ -5263,22 +5255,21 @@ impl FrozenExecutionPlan {
                     || cpu.persistent_packed_weights
                     || cpu.micro_m != 6
                     || cpu.simd_bytes < 16
-                    || cpu.simd_bytes % 4 != 0
+                    || !cpu.simd_bytes.is_multiple_of(4)
                     || cpu.micro_n != cpu.simd_bytes / 4
                 {
                     return Err(PlanError::InvalidCpuTuning);
                 }
             }
-            KernelFamily::CpuSgemmPrepackedB4x8 => {
-                if !cpu.pack_a
+            KernelFamily::CpuSgemmPrepackedB4x8
+                if (!cpu.pack_a
                     || !cpu.pack_b
                     || !cpu.persistent_packed_weights
                     || cpu.micro_m != 4
-                    || cpu.micro_n != 8
-                {
+                    || cpu.micro_n != 8)
+                => {
                     return Err(PlanError::InvalidCpuTuning);
                 }
-            }
             _ => {}
         }
 
@@ -5556,11 +5547,10 @@ impl FrozenExecutionPlan {
                     return Err(PlanError::GpuFeatureContractMismatch);
                 }
             }
-            KernelMathMode::Bf16Accumulate => {
-                if !gpu.required_features.contains(gpu_feature::BF16) {
+            KernelMathMode::Bf16Accumulate
+                if !gpu.required_features.contains(gpu_feature::BF16) => {
                     return Err(PlanError::GpuFeatureContractMismatch);
                 }
-            }
             _ => {}
         }
         if let Some(codegen) = gpu.gpu_codegen {
@@ -5706,7 +5696,7 @@ impl FrozenExecutionPlan {
                         };
                         if stride == 0
                             || stride >= (1u64 << 40)
-                            || stride % stride_alignment != 0
+                            || !stride.is_multiple_of(stride_alignment)
                         {
                             return Err(PlanError::InvalidGpuTuning);
                         }
@@ -5864,7 +5854,7 @@ impl FrozenExecutionPlan {
                 {
                     return Err(PlanError::GpuFeatureContractMismatch);
                 }
-            } else if gpu.tmem_columns_per_cta % hw.tmem_allocation_granularity != 0
+            } else if !gpu.tmem_columns_per_cta.is_multiple_of(hw.tmem_allocation_granularity)
                 || !gpu.tmem_columns_per_cta.is_power_of_two()
             {
                 return Err(PlanError::GpuFeatureContractMismatch);
@@ -5963,8 +5953,8 @@ impl FrozenExecutionPlan {
                 prior += 1;
             }
             let storage = self.find_storage(access.storage).ok_or(PlanError::MissingStorage)?;
-            let in_io = gpu.io.input_storages.iter().any(|&id| id == access.storage)
-                || gpu.io.output_storages.iter().any(|&id| id == access.storage);
+            let in_io = gpu.io.input_storages.contains(&access.storage)
+                || gpu.io.output_storages.contains(&access.storage);
             if !in_io {
                 return Err(PlanError::InvalidGpuTuning);
             }
@@ -6108,7 +6098,7 @@ impl FrozenExecutionPlan {
                 .ok_or(PlanError::InvalidL2AccessPolicy)?;
             let arena_on_device =
                 if arena.device_allocation == DeviceAllocationPolicy::MulticastMapped {
-                arena.multicast_devices.iter().any(|&d| d == gpu.device_ordinal)
+                arena.multicast_devices.contains(&gpu.device_ordinal)
             } else {
                 arena.device_ordinal == Some(gpu.device_ordinal)
             };
@@ -6229,9 +6219,9 @@ impl FrozenExecutionPlan {
                 || gpu.warp_m == 0
                 || gpu.warp_n == 0
                 || gpu.warp_k == 0
-                || gpu.tile_m % gpu.warp_m != 0
-                || gpu.tile_n % gpu.warp_n != 0
-                || gpu.tile_k % gpu.warp_k != 0)
+                || !gpu.tile_m.is_multiple_of(gpu.warp_m)
+                || !gpu.tile_n.is_multiple_of(gpu.warp_n)
+                || !gpu.tile_k.is_multiple_of(gpu.warp_k))
         {
             return Err(PlanError::InvalidGpuTuning);
         }
@@ -6369,9 +6359,9 @@ impl FrozenExecutionPlan {
             {
                 return Err(PlanError::InvalidGpuCluster);
             }
-            if gpu.grid.x % gpu.cluster.x != 0
-                || gpu.grid.y % gpu.cluster.y != 0
-                || gpu.grid.z % gpu.cluster.z != 0
+            if !gpu.grid.x.is_multiple_of(gpu.cluster.x)
+                || !gpu.grid.y.is_multiple_of(gpu.cluster.y)
+                || !gpu.grid.z.is_multiple_of(gpu.cluster.z)
             {
                 return Err(PlanError::InvalidGpuCluster);
             }
@@ -6381,14 +6371,13 @@ impl FrozenExecutionPlan {
             {
                 return Err(PlanError::InvalidClusterPolicy);
             }
-            if !gpu.preferred_cluster.is_all_zero() {
-                if gpu.preferred_cluster.x % gpu.cluster.x != 0
-                    || gpu.preferred_cluster.y % gpu.cluster.y != 0
-                    || gpu.preferred_cluster.z % gpu.cluster.z != 0
+            if !gpu.preferred_cluster.is_all_zero()
+                && (!gpu.preferred_cluster.x.is_multiple_of(gpu.cluster.x)
+                    || !gpu.preferred_cluster.y.is_multiple_of(gpu.cluster.y)
+                    || !gpu.preferred_cluster.z.is_multiple_of(gpu.cluster.z))
                 {
                     return Err(PlanError::InvalidClusterPolicy);
                 }
-            }
         } else if !gpu.cluster.is_all_zero()
             || !gpu.preferred_cluster.is_all_zero()
             || gpu.cluster_scheduling != ClusterSchedulingPolicy::NotApplicable
@@ -6469,7 +6458,7 @@ impl FrozenExecutionPlan {
                     }
                     if arena.page_policy == PagePolicy::ExplicitHugePages
                         && (arena.alignment_bytes < arena.page_size_bytes
-                            || arena.bytes % arena.page_size_bytes != 0)
+                            || !arena.bytes.is_multiple_of(arena.page_size_bytes))
                     {
                         return Err(PlanError::InvalidArenaPolicy);
                     }
@@ -6630,10 +6619,10 @@ impl FrozenExecutionPlan {
                             if arena.locality_domain.is_some()
                                 || !gpu.features.contains(gpu_feature::VIRTUAL_MEMORY_MANAGEMENT)
                                 || !gpu.features.contains(gpu_feature::MULTICAST_MEMORY)
-                                || !arena.multicast_devices.iter().any(|&d| d == device)
+                                || !arena.multicast_devices.contains(&device)
                                 || arena.bytes == 0
-                                || arena.bytes % gpu.multicast_min_granularity_bytes != 0
-                                || arena.bytes % gpu.multicast_recommended_granularity_bytes != 0
+                                || !arena.bytes.is_multiple_of(gpu.multicast_min_granularity_bytes)
+                                || !arena.bytes.is_multiple_of(gpu.multicast_recommended_granularity_bytes)
                                 || arena.alignment_bytes
                                     < gpu.multicast_recommended_granularity_bytes
                             {
@@ -6656,10 +6645,8 @@ impl FrozenExecutionPlan {
                                         .contains(gpu_feature::VIRTUAL_MEMORY_MANAGEMENT)
                                     || member_gpu.multicast_min_granularity_bytes == 0
                                     || member_gpu.multicast_recommended_granularity_bytes == 0
-                                    || arena.bytes % member_gpu.multicast_min_granularity_bytes != 0
-                                    || arena.bytes
-                                        % member_gpu.multicast_recommended_granularity_bytes
-                                        != 0
+                                    || !arena.bytes.is_multiple_of(member_gpu.multicast_min_granularity_bytes)
+                                    || !arena.bytes.is_multiple_of(member_gpu.multicast_recommended_granularity_bytes)
                                 {
                                     return Err(PlanError::GpuFeatureContractMismatch);
                                 }
@@ -6761,7 +6748,7 @@ impl FrozenExecutionPlan {
             if slot.alignment_bytes == 0 || !slot.alignment_bytes.is_power_of_two() {
                 return Err(PlanError::InvalidMemoryAlignment);
             }
-            if slot.offset_bytes % slot.alignment_bytes != 0 {
+            if !slot.offset_bytes.is_multiple_of(slot.alignment_bytes) {
                 return Err(PlanError::MemorySlotMisaligned);
             }
             // The arena base is guaranteed only arena.alignment_bytes.
@@ -6836,13 +6823,12 @@ impl FrozenExecutionPlan {
                 storage_index = 0;
                 while storage_index < self.storages.len() {
                     let storage = &self.storages[storage_index];
-                    if storage.slot == slot.id && storage.id != root_storage.id {
-                        if storage.external_alias_of != Some(root_storage.id)
-                            || storage.access != StorageAccess::ReadOnly
+                    if storage.slot == slot.id && storage.id != root_storage.id
+                        && (storage.external_alias_of != Some(root_storage.id)
+                            || storage.access != StorageAccess::ReadOnly)
                         {
                             return Err(PlanError::InvalidArenaPolicy);
                         }
-                    }
                     storage_index += 1;
                 }
 
@@ -6865,7 +6851,7 @@ impl FrozenExecutionPlan {
             let storage = &self.storages[i];
             let tensor = self.find_tensor(storage.tensor).ok_or(PlanError::MissingTensor)?;
             let slot = self.find_slot(storage.slot).ok_or(PlanError::MissingMemorySlot)?;
-            let arena = self.find_arena(slot.arena).ok_or(PlanError::MissingArena)?;
+            self.find_arena(slot.arena).ok_or(PlanError::MissingArena)?;
             if let Some(root_id) = storage.external_alias_of {
                 let root = self.find_storage(root_id).ok_or(PlanError::MissingStorage)?;
                 if root.id == storage.id
@@ -6935,13 +6921,12 @@ impl FrozenExecutionPlan {
             {
                 return Err(PlanError::InvalidMemoryLifetime);
             }
-            if storage.residency == ResidencyPolicy::PersistentWeight {
-                if tensor.reuse != ReusePattern::PersistentWeight
-                    || storage.access == StorageAccess::WriteOnly
+            if storage.residency == ResidencyPolicy::PersistentWeight
+                && (tensor.reuse != ReusePattern::PersistentWeight
+                    || storage.access == StorageAccess::WriteOnly)
                 {
                     return Err(PlanError::InvalidMemoryLifetime);
                 }
-            }
             i += 1;
         }
 

@@ -1398,7 +1398,7 @@ pub fn cpu_sgemm_packed6xsimd_seed(
     simd_bytes: u16,
     c_row_contiguous: bool,
 ) -> Option<CpuSgemmSeed> {
-    if !c_row_contiguous || m < 6 || k == 0 || n == 0 || simd_bytes < 16 || simd_bytes % 4 != 0 {
+    if !c_row_contiguous || m < 6 || k == 0 || n == 0 || simd_bytes < 16 || !simd_bytes.is_multiple_of(4) {
         return None;
     }
     let lanes = simd_bytes / 4;
@@ -1573,10 +1573,7 @@ pub const fn cpu_should_seed_persistent_weight_prepack(
     if !policy.seed_persistent_weight_prepack {
         return false;
     }
-    match reuse {
-        ReusePattern::PersistentWeight => true,
-        _ => false,
-    }
+    matches!(reuse, ReusePattern::PersistentWeight)
 }
 
 /// Dense linear-algebra seed. The supplied source has dedicated exact small

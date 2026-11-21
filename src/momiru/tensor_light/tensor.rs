@@ -620,10 +620,6 @@ mod storage {
     }
 
     impl<T: TensorElement> AlignedBuffer<T> {
-        pub fn zeroed(len: usize) -> Result<Self, TensorError> {
-            Self::zeroed_aligned(len, DEFAULT_HOST_ALIGNMENT)
-        }
-
         pub fn zeroed_aligned(len: usize, alignment: usize) -> Result<Self, TensorError> {
             if alignment == 0 || !alignment.is_power_of_two() {
                 return Err(TensorError::InvalidAlignment);
@@ -657,10 +653,6 @@ mod storage {
                 vec_capacity: None,
                 _marker: PhantomData,
             })
-        }
-
-        pub fn from_slice(src: &[T]) -> Result<Self, TensorError> {
-            Self::from_slice_aligned(src, DEFAULT_HOST_ALIGNMENT)
         }
 
         pub fn from_slice_aligned(src: &[T], alignment: usize) -> Result<Self, TensorError> {
@@ -726,16 +718,6 @@ mod storage {
         #[inline(always)]
         pub const fn alignment(&self) -> usize {
             self.alignment
-        }
-
-        #[inline(always)]
-        pub const fn len(&self) -> usize {
-            self.len
-        }
-
-        #[inline(always)]
-        pub const fn is_empty(&self) -> bool {
-            self.len == 0
         }
 
         #[inline(always)]
@@ -1073,7 +1055,7 @@ mod owned {
         ) -> Result<Self, TensorError> {
             debug_assert!(alignment != 0 && alignment.is_power_of_two());
             let effective_alignment = alignment.max(core::mem::align_of::<T>());
-            if shape.len() == 0 {
+            if shape.is_empty() {
                 return Ok(Self {
                     shape,
                     ptr: super::storage::aligned_empty_pointer(effective_alignment),
@@ -1223,11 +1205,6 @@ where
     }
 
     #[inline(always)]
-    pub const fn is_empty(&self) -> bool {
-        self.shape.is_empty()
-    }
-
-    #[inline(always)]
     pub const fn alignment(&self) -> usize {
         self.alignment
     }
@@ -1319,13 +1296,6 @@ where
     #[inline]
     pub fn empty_uninit(dims: [usize; R]) -> Result<UninitTensor<T, R>, TensorError> {
         UninitTensor::new(dims)
-    }
-
-    #[inline]
-    pub(crate) fn empty_uninit_with_plan(
-        plan: CreationPlan<R>,
-    ) -> Result<UninitTensor<T, R>, TensorError> {
-        UninitTensor::from_plan(plan)
     }
 
     #[inline]

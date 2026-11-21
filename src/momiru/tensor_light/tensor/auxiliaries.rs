@@ -175,6 +175,11 @@ where
     pub const fn ndim(&self) -> usize { R }
     #[inline(always)]
     pub const fn len(&self) -> usize { self.shape.len() }
+    /// Whether the mask has no logical elements.
+    #[inline(always)]
+    pub const fn is_empty(&self) -> bool {
+        self.shape.is_empty()
+    }
     #[inline(always)]
     pub const fn numel(&self) -> usize { self.shape.len() }
     /// Actual bytes of the u64 INDEX_RESULT payload, NOT the f32-only

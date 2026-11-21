@@ -430,7 +430,7 @@ where Rank<R>: ValidRank,
         let mut dims = *self.layout.dims();
         dims[axis] = count;
         let mut strides = *self.layout.strides();
-        if count == 0 || self.layout.len() == 0 {
+        if count == 0 || self.layout.is_empty() {
             // No reachable f32 address: keep a valid structural empty origin.
             strides[axis] = 0;
             return Self::new(dims, strides, self.layout.origin_offset(), self.storage);

@@ -727,9 +727,9 @@ where
             return Ok((Self::strided(dims, [0usize; R])?, 0));
         }
         let mut base_offset = 0usize;
-        for axis in 0..R {
-            let axis_offset = starts[axis]
-                .checked_mul(self.strides()[axis])
+        for (start, &stride) in starts.into_iter().zip(self.strides()) {
+            let axis_offset = start
+                .checked_mul(stride)
                 .ok_or(TensorError::ShapeOverflow)?;
             base_offset = base_offset
                 .checked_add(axis_offset)

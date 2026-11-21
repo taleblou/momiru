@@ -464,7 +464,7 @@ pub(crate) const fn arena_guarantees_slot_alignment(
     arena_alignment.is_power_of_two()
         && slot_alignment.is_power_of_two()
         && arena_alignment >= slot_alignment
-        && offset_bytes % slot_alignment == 0
+        && offset_bytes.is_multiple_of(slot_alignment)
 }
 
 #[cfg(test)]

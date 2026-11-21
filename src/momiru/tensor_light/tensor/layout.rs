@@ -261,12 +261,12 @@ where
     pub fn checked_offset(&self, index: [usize; R]) -> Result<usize, TensorError> {
         if self.len == 0 { return Err(TensorError::IndexOutOfBounds); }
         let mut offset = self.origin as i128;
-        for axis in 0..R {
-            if index[axis] >= self.dims[axis] {
+        for ((coordinate, extent), stride) in index.into_iter().zip(self.dims).zip(self.strides) {
+            if coordinate >= extent {
                 return Err(TensorError::IndexOutOfBounds);
             }
-            let term = (index[axis] as i128)
-                .checked_mul(self.strides[axis] as i128)
+            let term = (coordinate as i128)
+                .checked_mul(stride as i128)
                 .ok_or(TensorError::ShapeOverflow)?;
             offset = offset.checked_add(term).ok_or(TensorError::ShapeOverflow)?;
         }

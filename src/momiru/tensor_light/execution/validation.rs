@@ -6445,13 +6445,6 @@ fn external_arena_device_is_declared(
     device_ordinal.is_none_or(|device| frozen_memory_gpu_ordinals.contains(&device))
 }
 
-#[cfg(test)]
-mod external_arena_device_membership_tests {
-    include!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/src/tests/tensor_light/unit/execution/validation/external_arena_device_membership_tests.rs"
-    ));
-}
 // =============================================================================
 // Memory validation
 // =============================================================================
@@ -8268,6 +8261,13 @@ impl FrozenExecutionPlan {
     }
 }
 
+#[cfg(test)]
+mod external_arena_device_membership_tests {
+    include!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/tests/tensor_light/unit/execution/validation/external_arena_device_membership_tests.rs"
+    ));
+}
 }
 
 #[cfg(test)]

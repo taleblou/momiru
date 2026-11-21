@@ -126,7 +126,7 @@
 //! empty view. Every nonempty logical address is checked against one host slice.
 //!
 //! This is pure metadata construction; compute stays with the frozen UASDEA plan.
-use super::{InternalOverlap, Layout, Rank, Tensor, TensorError, ValidRank};
+use super::{InternalOverlap, Layout, Rank, Tensor, TensorError, TensorView, ValidRank};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SignedSliceSpec {
@@ -376,11 +376,10 @@ where Rank<R>: ValidRank,
         Self::new(dims, *self.layout.strides(), origin, self.storage)
     }
 
-    /// Merge the selected adjacent axes when (and only when) their logical
-    /// C-order index progression admits one exact affine signed stride.
-    /// The rest of the view may be transposed, strided, broadcast, or gapped.
-    /// Negative contiguous progression is allowed; incompatible mixed steps
-    /// are rejected. No copy, GPU launch or runtime strategy selection occurs.
+    /// Merge adjacent axes without copying. For a nonempty view, the selected
+    /// axes must admit one affine signed stride in logical C order. Other axes
+    /// may be transposed, broadcast, or gapped. For an empty view, a non-affine
+    /// group uses stride zero and its merged extent must still fit in usize.
     pub fn flatten_view<const OUT: usize>(
         &self, start: usize, end: usize,
     ) -> Result<SignedTensorView<'a, OUT>, TensorError>
@@ -468,15 +467,22 @@ fn normal_slice_endpoint(value: Option<isize>, n: i128, default: i128, low: i128
     }
 }
 
+impl<'a, const R: usize> TensorView<'a, f32, R>
+where
+    Rank<R>: ValidRank,
+{
+    /// Borrow this view's backing span with signed-stride metadata, without
+    /// copying. Offsets are relative to the start of this view's span.
+    pub fn signed_view(&self) -> Result<SignedTensorView<'a, R>, TensorError> {
+        SignedTensorView::new(*self.dims(), self.shape().signed_strides(), 0, self.data)
+    }
+}
+
 impl<const R: usize> Tensor<f32, R>
 where Rank<R>: ValidRank,
 {
     pub fn signed_view(&self) -> Result<SignedTensorView<'_, R>, TensorError> {
-        let mut strides = [0isize; R];
-        for (out, &value) in strides.iter_mut().zip(self.shape().strides().iter()) {
-            *out = isize::try_from(value).map_err(|_| TensorError::ShapeOverflow)?;
-        }
-        SignedTensorView::new(*self.shape().dims(), strides, 0, self.as_slice())
+        self.view().signed_view()
     }
 
     pub fn flip_view(&self, axis: usize) -> Result<SignedTensorView<'_, R>, TensorError> {

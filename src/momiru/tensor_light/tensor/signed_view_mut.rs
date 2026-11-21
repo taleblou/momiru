@@ -124,7 +124,9 @@
 
 //! Safe, exclusive, signed-stride f32 views, with conservative injectivity
 //! proof. CPU host accesses only; bulk operations require a frozen plan.
-use super::{Layout, Rank, SignedSliceSpec, SignedTensorView, Tensor, TensorError, ValidRank};
+use super::{
+    Layout, Rank, SignedSliceSpec, SignedTensorView, Tensor, TensorError, TensorViewMut, ValidRank,
+};
 
 /// An exclusive zero-copy f32 view, accepting negative strides only when the
 /// *whole* logical index mapping is provably injective. A mutable element
@@ -311,9 +313,9 @@ where
         SignedTensorViewMut::new(dims, strides, origin, self.storage)
     }
 
-    /// Exact affine C-order merging of a selected group of neighboring axes.
-    /// Works for valid positive, negative, and gapped outer strides. Unlike a
-    /// materializing flatten, this must reject every non-affine collapse.
+    /// Zero-copy C-order merging of neighboring axes. Nonempty views require
+    /// an affine progression through the group. Empty views only require a
+    /// representable merged extent.
     pub fn flatten_view_mut<const OUT: usize>(self, start: usize, end: usize)
         -> Result<SignedTensorViewMut<'a, OUT>, TensorError>
     where Rank<OUT>: ValidRank,
@@ -363,16 +365,35 @@ where
     }
 }
 
+impl<'a, const R: usize> TensorViewMut<'a, f32, R>
+where
+    Rank<R>: ValidRank,
+{
+    /// Reborrow this view's backing span with signed-stride metadata. Offsets
+    /// are relative to the start of this view's span. The result holds the
+    /// exclusive borrow for as long as it is in use.
+    ///
+    /// ```compile_fail
+    /// use momiru::tensor_light::TensorViewMut;
+    ///
+    /// let mut storage = [1.0_f32, 2.0];
+    /// let mut view = TensorViewMut::new_strided([2], [1], &mut storage).unwrap();
+    /// let mut signed = view.signed_view_mut().unwrap();
+    /// let _ = view.signed_view_mut().unwrap();
+    /// signed.set([0], 3.0).unwrap();
+    /// ```
+    pub fn signed_view_mut(&mut self) -> Result<SignedTensorViewMut<'_, R>, TensorError> {
+        SignedTensorViewMut::new(*self.shape.dims(), self.shape.signed_strides(), 0, self.data)
+    }
+}
+
 impl<const R: usize> Tensor<f32, R>
 where
     Rank<R>: ValidRank,
 {
     pub fn signed_view_mut(&mut self) -> Result<SignedTensorViewMut<'_, R>, TensorError> {
         let dims = *self.shape().dims();
-        let mut strides = [0isize; R];
-        for (dst, &src) in strides.iter_mut().zip(self.shape().strides()) {
-            *dst = isize::try_from(src).map_err(|_| TensorError::ShapeOverflow)?;
-        }
+        let strides = self.shape().signed_strides();
         SignedTensorViewMut::new(dims, strides, 0, self.as_mut_slice())
     }
 

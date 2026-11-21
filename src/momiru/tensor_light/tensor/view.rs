@@ -284,9 +284,8 @@ where
     if R == 0 || start > end || end >= R || OUT != R - (end - start) {
         return Err(TensorError::ShapeMismatch);
     }
-    // Only the selected axis group must be flattenable. Outer axes may be
-    // transposed or have gaps; a frozen dataflow graph is not needed for this
-    // exact metadata-only remapping.
+    // Only the selected axis group needs an affine progression, and only if
+    // the view has reachable elements.
     let (collapsed, collapsed_stride) = super::collapse_flatten_group(
         shape.dims(), &shape.signed_strides(), start, end,
     )?;

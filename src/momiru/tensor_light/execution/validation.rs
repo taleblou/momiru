@@ -128,7 +128,7 @@ use super::ir::{
     canonical_broadcast_extent, canonical_elementwise_broadcast_signature, AccuracyContract, AxisSelector, AttentionMaskKind, DenseLinalgKind,
     ElementwiseKind, FourierTransformKind, KernelMathMode, LayoutKind, NodeId, NormalizationKind,
     Operation, PadMode, QuantizationKind, ReductionKind, ResampleMode, ReusePattern,
-    ScaleGranularity, ScanOutput, SortOutput,
+    ScalarElementwiseKind, ScaleGranularity, ScanOutput, SortOutput,
     SparsityPattern, StaticShape, TensorId,
     TensorLayout, TensorRole, TensorSpec,
 };
@@ -141,12 +141,14 @@ use super::plan::{
     CpuDispatchMode, CpuKernelPlan, CpuKernelSource, CpuMemoryAccessPlan, CpuParallelKind,
     CpuVectorAccessKind, DeviceAllocationPolicy, EventPlan,
     ExecutionTarget, FrozenExecutionPlan, FrozenNode, GpuExecutionContextPlan, GpuKernelPlan,
+    GpuKernelSource,
     GpuCacheEvictionPriority, GpuLoadCachePolicy, GpuPartitionKind, GpuStoreCachePolicy,
     GraphReplayMode, HostBoundaryClass, HostMemoryPolicy, KernelAssumptionPlan,
     KernelFamily, L2AccessProperty, LifetimeClass, MatrixAcceleration, MemoryArenaPlan, MemoryClass,
     MemcpySrcAccessOrder, MemoryLocation, MemorySlotPlan, NumaPolicy, PagePolicy, PgoMode, Placement,
     PortableClusterMode, PostLinkOptimization, PrefetchKind, ResidencyPolicy, RustFloatMode,
-    RustPanicStrategy, ScheduleItem, SharedMemoryMode, SmPartitionKind, StorageAccess, StreamPlan,
+    RustPanicStrategy, ScheduleItem, SharedMemoryMode, SmPartitionKind, StorageAccess, StorePolicy,
+    StreamPlan,
     SyncKind, TargetIoPlan, TensorMapDirection, TensorMapInterleave, TensorMapOobFill,
     TensorMapKind, TensorMapStoreReduction, TensorMapSwizzle, TensorStoragePlan,
     TransferBatchKind, TransferBatchPlan, TransferKind, TransferPlan,
@@ -599,7 +601,7 @@ impl FrozenExecutionPlan {
 
 impl FrozenExecutionPlan {
     #[inline(always)]
-    fn memory_location_order_key(location: MemoryLocation) -> (u8, u16) {
+    pub(super) fn memory_location_order_key(location: MemoryLocation) -> (u8, u16) {
         match location {
             MemoryLocation::Host => (0, 0),
             MemoryLocation::HostNuma(node) => (1, node),
@@ -3538,7 +3540,7 @@ impl FrozenExecutionPlan {
                     .ok_or(PlanError::InvalidKernelAssumption)?;
                 if slot.alignment_bytes < alignment
                     || storage_address % alignment != 0
-                    || storage.physical_layout.alignment_bytes as usize < alignment
+                    || (storage.physical_layout.alignment_bytes as usize) < alignment
                 {
                     return Err(PlanError::InvalidKernelAssumption);
                 }
@@ -4362,7 +4364,7 @@ impl FrozenExecutionPlan {
             KernelFamily::ScalarPowerThreeHalves => {
                 let compatible = match node.operation {
                     Operation::ScalarElementwise(spec) => {
-                        spec.kind == super::ir::ScalarElementwiseKind::Power
+                        spec.kind == ScalarElementwiseKind::Power
                             && spec.scalar0_f32_bits == 1.5f32.to_bits()
                     }
                     _ => false,
@@ -5208,7 +5210,7 @@ impl FrozenExecutionPlan {
                 .ok_or(PlanError::InvalidCpuTuning)?;
             if slot.alignment_bytes < alignment
                 || storage_address % alignment != 0
-                || storage.physical_layout.alignment_bytes as usize < alignment
+                || (storage.physical_layout.alignment_bytes as usize) < alignment
             {
                 return Err(PlanError::InvalidCpuTuning);
             }
@@ -5535,7 +5537,7 @@ impl FrozenExecutionPlan {
                     || codegen.compiled_active_blocks_per_sm == 0
                     || codegen.compiled_active_blocks_per_sm > hw.max_blocks_per_sm
                     || codegen.compiled_registers_per_thread != gpu.target_registers_per_thread
-                    || codegen.compiled_max_threads_per_block as u64 < block_threads
+                    || (codegen.compiled_max_threads_per_block as u64) < block_threads
                     || (gpu.target_blocks_per_sm > 0
                         && codegen.compiled_active_blocks_per_sm != gpu.target_blocks_per_sm)
                     || codegen.compiled_active_blocks_per_sm < gpu.min_blocks_per_sm
@@ -5551,7 +5553,7 @@ impl FrozenExecutionPlan {
                     || !codegen.allow_expensive_optimizations
                     || !codegen.fast_compile_disabled
                     || (codegen.compileiq_tuned
-                        && (codegen.source != super::plan::GpuKernelSource::CudaCppAot
+                        && (codegen.source != GpuKernelSource::CudaCppAot
                             || (codegen.advanced_controls_hash_hi == 0
                                 && codegen.advanced_controls_hash_lo == 0)))
                     || (!codegen.compileiq_tuned
@@ -6001,7 +6003,7 @@ impl FrozenExecutionPlan {
                 .ok_or(PlanError::InvalidGpuTuning)?;
             if slot.alignment_bytes < alignment
                 || storage_address % alignment != 0
-                || storage.physical_layout.alignment_bytes as usize < alignment
+                || (storage.physical_layout.alignment_bytes as usize) < alignment
             {
                 return Err(PlanError::InvalidGpuTuning);
             }

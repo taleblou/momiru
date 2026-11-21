@@ -11,49 +11,13 @@
 
 Call `TensorView::signed_view` or `TensorViewMut::signed_view_mut` to apply signed operations to an existing nonnegative-stride view without copying. The conversion keeps the same shape, strides, and backing span. Signed offsets start at zero relative to that span, even if the original view was created at an offset into a larger slice. The mutable result reborrows the original view exclusively.
 
-## Focused validation in this checkout
+## Focused validation
 
-The command below runs the new integration tests against the actual Light module and the repository build script. The small Cargo package lives under the ignored `target/` directory. Run from the repository root.
+Run the Light integration tests from the repository root.
 
 ```sh
-mkdir -p target/a02-light-validation
-cp rust-toolchain.toml target/a02-light-validation/rust-toolchain.toml
-cat > target/a02-light-validation/Cargo.toml <<'TOML'
-[package]
-name = "momiru"
-version = "0.1.0"
-edition = "2021"
-rust-version = "1.99.1"
-build = "../../build.rs"
-
-[lib]
-path = "light.rs"
-
-[features]
-default = []
-aot = []
-
-[[test]]
-name = "a02_light_layout"
-path = "../../tests/a02_light_layout.rs"
-
-[[test]]
-name = "a02_borrowed_signed_views"
-path = "../../tests/a02_borrowed_signed_views.rs"
-
-[[test]]
-name = "a02_stride_spacing"
-path = "../../tests/a02_stride_spacing.rs"
-TOML
-cat > target/a02-light-validation/light.rs <<'RUST'
-#![deny(unsafe_op_in_unsafe_fn)]
-
-#[path = "../../src/momiru/tensor_light/mod.rs"]
-pub mod tensor_light;
-RUST
-cargo generate-lockfile --offline --manifest-path target/a02-light-validation/Cargo.toml
-cargo test --offline --locked --manifest-path target/a02-light-validation/Cargo.toml --test a02_light_layout --test a02_borrowed_signed_views --test a02_stride_spacing
-cargo test --offline --locked --manifest-path target/a02-light-validation/Cargo.toml --test a02_light_layout --test a02_borrowed_signed_views --test a02_stride_spacing --all-features
+cargo test --locked --test a02_light_layout --test a02_borrowed_signed_views --test a02_stride_spacing
+cargo test --locked --features aot --test a02_light_layout --test a02_borrowed_signed_views --test a02_stride_spacing
 ```
 
-The suite checks rank and overflow boundaries, signed slicing, empty flattening, address mapping, and writable alias rejection. Its bounded enumeration covers 441 rank-two layouts. Scientific trials and canonical protocol conformance are `NOT_RUN`. Cross-engine pairing is `INELIGIBLE` until the General source and the canonical corpus, evidence protocols, and vectors are restored and validated.
+The suite checks rank and overflow boundaries, signed slicing, empty flattening, address mapping, and writable alias rejection. Its bounded enumeration covers 441 rank-two layouts. Scientific trials and canonical protocol conformance are `NOT_RUN`. Cross-engine pairing is `INELIGIBLE` pending the canonical corpus, evidence protocols, and vectors and independent validation of those inputs.

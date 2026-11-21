@@ -221,9 +221,10 @@ impl Layout {
 
     /// Prove that distinct coordinates address distinct elements.
     ///
-    /// Axis strides are ordered by magnitude. Each active axis must step
-    /// beyond the interval occupied by all smaller strides. This sufficient
-    /// check can be inconclusive for interleaved layouts.
+    /// The check is exact for up to two axes with extent greater than one.
+    /// For more axes, each active axis must step beyond the interval occupied
+    /// by all smaller stride magnitudes. This sufficient check can be
+    /// inconclusive for interleaved layouts.
     pub fn is_proven_unique(&self) -> bool {
         if self.len <= 1 {
             return true;
@@ -235,6 +236,18 @@ impl Layout {
             .filter(|&(&dim, _)| dim > 1)
             .map(|(&dim, &stride)| (stride.unsigned_abs(), dim))
             .collect();
+        if let &[(stride_a, dim_a), (stride_b, dim_b)] = axes.as_slice() {
+            if stride_a == 0 || stride_b == 0 {
+                return false;
+            }
+            let (mut gcd, mut remainder) = (stride_a, stride_b);
+            while remainder != 0 {
+                (gcd, remainder) = (remainder, gcd % remainder);
+            }
+            // Any collision uses coordinate differences that are nonzero
+            // multiples of (stride_b / gcd, stride_a / gcd) in magnitude.
+            return dim_a <= stride_b / gcd || dim_b <= stride_a / gcd;
+        }
         axes.sort_unstable();
         let mut span = 1u128;
         for (stride, dim) in axes {

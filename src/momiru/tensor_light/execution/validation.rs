@@ -6446,8 +6446,12 @@ fn external_arena_device_is_declared(
 }
 
 #[cfg(test)]
-#[path = "../../../tests/tensor_light/unit/execution/validation/external_arena_device_membership_tests.rs"]
-mod external_arena_device_membership_tests;
+mod external_arena_device_membership_tests {
+    include!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/tests/tensor_light/unit/execution/validation/external_arena_device_membership_tests.rs"
+    ));
+}
 // =============================================================================
 // Memory validation
 // =============================================================================

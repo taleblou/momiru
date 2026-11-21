@@ -284,9 +284,8 @@ where
     if R == 0 || start > end || end >= R || OUT != R - (end - start) {
         return Err(TensorError::ShapeMismatch);
     }
-    // Only the selected axis group must be flattenable. Outer axes may be
-    // transposed or have gaps; a frozen dataflow graph is not needed for this
-    // exact metadata-only remapping.
+    // Only the selected axis group needs an affine progression, and only if
+    // the view has reachable elements.
     let (collapsed, collapsed_stride) = super::collapse_flatten_group(
         shape.dims(), &shape.signed_strides(), start, end,
     )?;
@@ -728,9 +727,9 @@ where
             return Ok((Self::strided(dims, [0usize; R])?, 0));
         }
         let mut base_offset = 0usize;
-        for axis in 0..R {
-            let axis_offset = starts[axis]
-                .checked_mul(self.strides()[axis])
+        for (start, &stride) in starts.into_iter().zip(self.strides()) {
+            let axis_offset = start
+                .checked_mul(stride)
                 .ok_or(TensorError::ShapeOverflow)?;
             base_offset = base_offset
                 .checked_add(axis_offset)

@@ -597,8 +597,8 @@ impl HardwareContract {
                     && gpu.max_oversized_dynamic_shared_bytes_per_block
                         < gpu.max_dynamic_shared_bytes_per_block)
                 || gpu.max_shared_bytes_per_sm == 0
-                || gpu.max_block_dim.iter().any(|&v| v == 0)
-                || gpu.max_grid_dim.iter().any(|&v| v == 0)
+                || gpu.max_block_dim.contains(&0)
+                || gpu.max_grid_dim.contains(&0)
                 || gpu.locality_domain_count == 0
                 || gpu.memory_sync_domain_count == 0
                 || gpu.greatest_stream_priority > gpu.least_stream_priority
@@ -668,9 +668,7 @@ impl HardwareContract {
                     || gpu.multicast_min_granularity_bytes == 0
                     || gpu.multicast_recommended_granularity_bytes
                         < gpu.multicast_min_granularity_bytes
-                    || gpu.multicast_recommended_granularity_bytes
-                        % gpu.multicast_min_granularity_bytes
-                        != 0
+                    || !gpu.multicast_recommended_granularity_bytes.is_multiple_of(gpu.multicast_min_granularity_bytes)
                 {
                     return Err(PlanError::InvalidHardwareContract);
                 }

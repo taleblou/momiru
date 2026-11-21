@@ -372,28 +372,30 @@ fn mapping_has_bounded_triple_collision<const R: usize>(
 
 /// Sound pigeonhole certificate for multi-axis signed mappings.
 ///
-/// Every logical element maps to one integral element offset inside a
-/// bounding interval of `1 + sum((dim_i - 1) * abs(stride_i))` elements.
-/// When the logical cardinality is strictly larger, two distinct logical
-/// indices MUST refer to the same f32 element. This proof is O(R), uses no
-/// heap memory and never creates a pointer. Overflow means *no proof*, not
-/// permission to create a mutable view. Empty shapes and rank-zero scalars
-/// cannot have an internal collision.
+/// Every reachable offset is congruent to the origin modulo the greatest
+/// common divisor of the active stride magnitudes. With a bounding interval
+/// of width `spread`, there are at most `1 + spread / divisor` distinct
+/// offsets. A larger logical cardinality proves overlap. Singleton axes
+/// contribute neither displacement nor a stride divisor.
 #[inline]
 fn mapping_has_pigeonhole_collision<const R: usize>(
     dims: &[usize; R], strides: &[isize; R], len: usize,
 ) -> bool {
     if len <= 1 || dims.contains(&0) { return false; }
-    let mut span = 1u128;
+    let mut spread = 0u128;
+    let mut divisor = 0usize;
     for axis in 0..R {
         if dims[axis] <= 1 { continue; }
+        let stride = strides[axis].unsigned_abs();
+        if divisor != 1 {
+            divisor = stride_gcd(divisor, stride);
+        }
         let extent = (dims[axis] - 1) as u128;
-        let stride = strides[axis].unsigned_abs() as u128;
-        let Some(delta) = extent.checked_mul(stride) else { return false; };
-        let Some(next) = span.checked_add(delta) else { return false; };
-        span = next;
+        let Some(delta) = extent.checked_mul(stride as u128) else { return false; };
+        let Some(next) = spread.checked_add(delta) else { return false; };
+        spread = next;
     }
-    (len as u128) > span
+    divisor != 0 && (len as u128 - 1) > spread / divisor as u128
 }
 
 /// Exact, allocation-free *tri-state* classification for bounded mappings.
@@ -496,9 +498,8 @@ pub(crate) fn signed_mapping_overlap<const R: usize>(
             dims[a], strides[a].unsigned_abs(), dims[b], strides[b].unsigned_abs(),
         ) { InternalOverlap::None } else { InternalOverlap::Definite };
     }
-    // A fast cardinality-vs-physical-span (pigeonhole) witness detects
-    // certain large multi-axis collisions missed by bounded enumeration.
-    // It is a one-way proof: span >= numel NEVER proves injectivity.
+    // Stride spacing can prove certain large multi-axis collisions without
+    // enumeration. Having enough candidate offsets gives no uniqueness proof.
     // Common contiguous/separated strides returned None above.
     if mapping_has_pigeonhole_collision(dims, strides, len) {
         return InternalOverlap::Definite;
@@ -527,8 +528,9 @@ pub use auxiliaries::{IndexResult, PredicateMask};
 /// selected axes have the same affine C-order flattening. This is exact, never
 /// an optimistic alias or overlap assumption.
 ///
-/// For empty groups, no address is reachable; shape cardinality becomes zero
-/// before any potentially overflowing multiplication of the other extents.
+/// An empty group collapses to extent zero. When an axis outside the group
+/// makes the view empty, a non-affine group can use stride zero because no
+/// address is reachable. Its merged extent must still fit in usize.
 pub(crate) fn collapse_flatten_group<const R: usize>(
     dims: &[usize; R], strides: &[isize; R], start: usize, end: usize,
 ) -> Result<(usize, isize), TensorError> {
@@ -545,6 +547,12 @@ pub(crate) fn collapse_flatten_group<const R: usize>(
                 let expected = base_stride.checked_mul(scale)
                     .ok_or(TensorError::ShapeOverflow)?;
                 if (strides[axis] as i128) != expected {
+                    if dims.contains(&0) {
+                        let merged = dims[start..=end].iter().try_fold(1usize, |len, &dim| {
+                            len.checked_mul(dim).ok_or(TensorError::ShapeOverflow)
+                        })?;
+                        return Ok((merged, 0));
+                    }
                     return Err(TensorError::NonContiguous);
                 }
             } else {
@@ -612,10 +620,6 @@ mod storage {
     }
 
     impl<T: TensorElement> AlignedBuffer<T> {
-        pub fn zeroed(len: usize) -> Result<Self, TensorError> {
-            Self::zeroed_aligned(len, DEFAULT_HOST_ALIGNMENT)
-        }
-
         pub fn zeroed_aligned(len: usize, alignment: usize) -> Result<Self, TensorError> {
             if alignment == 0 || !alignment.is_power_of_two() {
                 return Err(TensorError::InvalidAlignment);
@@ -649,10 +653,6 @@ mod storage {
                 vec_capacity: None,
                 _marker: PhantomData,
             })
-        }
-
-        pub fn from_slice(src: &[T]) -> Result<Self, TensorError> {
-            Self::from_slice_aligned(src, DEFAULT_HOST_ALIGNMENT)
         }
 
         pub fn from_slice_aligned(src: &[T], alignment: usize) -> Result<Self, TensorError> {
@@ -718,16 +718,6 @@ mod storage {
         #[inline(always)]
         pub const fn alignment(&self) -> usize {
             self.alignment
-        }
-
-        #[inline(always)]
-        pub const fn len(&self) -> usize {
-            self.len
-        }
-
-        #[inline(always)]
-        pub const fn is_empty(&self) -> bool {
-            self.len == 0
         }
 
         #[inline(always)]
@@ -1059,10 +1049,13 @@ mod owned {
         /// repeating Shape::contiguous for each output adds needless work,
         /// particularly for many small rank-8 host tensors.
         #[inline]
-        fn allocate_validated_shape(shape: Shape<R>, alignment: usize) -> Result<Self, TensorError> {
+        pub(super) fn allocate_validated_shape(
+            shape: Shape<R>,
+            alignment: usize,
+        ) -> Result<Self, TensorError> {
             debug_assert!(alignment != 0 && alignment.is_power_of_two());
             let effective_alignment = alignment.max(core::mem::align_of::<T>());
-            if shape.len() == 0 {
+            if shape.is_empty() {
                 return Ok(Self {
                     shape,
                     ptr: super::storage::aligned_empty_pointer(effective_alignment),
@@ -1212,11 +1205,6 @@ where
     }
 
     #[inline(always)]
-    pub const fn is_empty(&self) -> bool {
-        self.shape.is_empty()
-    }
-
-    #[inline(always)]
     pub const fn alignment(&self) -> usize {
         self.alignment
     }
@@ -1308,13 +1296,6 @@ where
     #[inline]
     pub fn empty_uninit(dims: [usize; R]) -> Result<UninitTensor<T, R>, TensorError> {
         UninitTensor::new(dims)
-    }
-
-    #[inline]
-    pub(crate) fn empty_uninit_with_plan(
-        plan: CreationPlan<R>,
-    ) -> Result<UninitTensor<T, R>, TensorError> {
-        UninitTensor::from_plan(plan)
     }
 
     #[inline]

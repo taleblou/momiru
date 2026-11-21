@@ -415,6 +415,9 @@ struct SortRecord {
     ordinal: usize,
 }
 
+type CpuKernelEntry = unsafe fn(&CpuCommand);
+type NamedCpuKernel = (&'static str, CpuKernelEntry);
+
 #[derive(Clone, Copy)]
 struct CpuCommand {
     a: *const f32,
@@ -432,7 +435,7 @@ struct CpuCommand {
     scalar1: f32,
     arbitrary_axes: Option<ArbitraryAxes>,
     sort_scratch: *mut SortRecord,
-    entry: unsafe fn(&CpuCommand),
+    entry: CpuKernelEntry,
 }
 
 /// Prepared nodes are indexed by frozen node ID. No runtime map/hash/probing.
@@ -709,7 +712,7 @@ fn physical_storage_fits(
 /// overflowing offsets cannot be converted into a raw f32 pointer.
 #[inline]
 fn contiguous_payload_fits(physical_bytes: usize, base_bytes: usize, data_bytes: usize) -> bool {
-    base_bytes % core::mem::size_of::<f32>() == 0
+    base_bytes.is_multiple_of(core::mem::size_of::<f32>())
         && base_bytes.checked_add(data_bytes).is_some_and(|end| end <= physical_bytes)
 }
 
@@ -856,8 +859,8 @@ pub fn builtin_cpu_release_kernel_selfcheck() -> bool {
         scalar0: 0.0, scalar1: 0.0, arbitrary_axes: None, sort_scratch: ptr::null_mut(), entry: rsqrt_nonpositive_to_zero_f32,
     };
     unsafe { rsqrt_nonpositive_to_zero_f32(&special_cmd); }
-    for i in 0..=3 {
-        if special_out[i].to_bits() != 0.0_f32.to_bits() { return false; }
+    for value in &special_out[..4] {
+        if value.to_bits() != 0.0_f32.to_bits() { return false; }
     }
     if special_out[4] != 2.0 || special_out[5] != 1.0 || special_out[6] != 0.5
         || !special_out[7].is_nan() || special_out[8] != 0.0
@@ -865,8 +868,8 @@ pub fn builtin_cpu_release_kernel_selfcheck() -> bool {
         return false;
     }
     unsafe { log_nonpositive_to_neg87_f32(&special_cmd); }
-    for i in 0..=3 {
-        if special_out[i].to_bits() != (-87.0_f32).to_bits() { return false; }
+    for value in &special_out[..4] {
+        if value.to_bits() != (-87.0_f32).to_bits() { return false; }
     }
     if special_out[5].to_bits() != 0.0_f32.to_bits() || !special_out[7].is_nan() {
         return false;
@@ -1219,10 +1222,10 @@ fn flip_block_geometry(shape: StaticShape, axes: AxisList)
     let mut outer = 1usize;
     let mut block = 1usize;
     let mut inner = 1usize;
-    for axis in 0..rank {
+    for (axis, &is_flipped) in flipped[..rank].iter().enumerate() {
         let extent = shape.dim(axis).ok_or(CpuNativeError::InvalidShape)?;
         if axis >= first && axis <= last {
-            if extent > 1 && !flipped[axis] {
+            if extent > 1 && !is_flipped {
                 return Err(CpuNativeError::UnsupportedOperation);
             }
             block = block.checked_mul(extent).ok_or(CpuNativeError::InvalidShape)?;
@@ -1474,7 +1477,7 @@ fn prepare_node(
         return Err(CpuNativeError::UnsupportedArtifact);
     }
     if [Some(output), a, b].iter().flatten().any(|span| {
-        span.len != 0 && alignment != 0 && (span.ptr as usize) % alignment != 0
+        span.len != 0 && alignment != 0 && !(span.ptr as usize).is_multiple_of(alignment)
     }) {
         return Err(CpuNativeError::UnsupportedLayout);
     }
@@ -1803,7 +1806,7 @@ fn prepare_node(
 /// operation or exponent. Numeric compatibility is part of each entry name.
 fn choose_scalar_entry(
     kind: ScalarElementwiseKind, bits: u32, family: KernelFamily,
-) -> Result<(&'static str, unsafe fn(&CpuCommand)), CpuNativeError> {
+) -> Result<NamedCpuKernel, CpuNativeError> {
     if family == KernelFamily::ScalarPowerThreeHalves {
         return if kind == ScalarElementwiseKind::Power && bits == 1.5f32.to_bits() {
             Ok((BUILTIN_SCALAR_POWER_3_2, scalar_power_three_halves_f32))
@@ -1846,7 +1849,7 @@ fn choose_scalar_entry(
 /// and unsupported empty reductions testable without a fabricated AOT image.
 fn choose_all_reduction_entry(
     kind: ReductionKind, input_len: usize,
-) -> Result<(&'static str, unsafe fn(&CpuCommand)), CpuNativeError> {
+) -> Result<NamedCpuKernel, CpuNativeError> {
     match kind {
         ReductionKind::Sum => Ok((BUILTIN_SUM, sum_all_f32)),
         ReductionKind::Product => Ok((BUILTIN_PRODUCT, product_all_f32)),
@@ -1872,7 +1875,7 @@ fn choose_all_reduction_entry(
 /// is an error, not permission to silently execute another implementation.
 fn choose_gemm_entry(
     family: KernelFamily, avx2: bool, vectorizable: bool,
-) -> Result<(&'static str, unsafe fn(&CpuCommand)), CpuNativeError> {
+) -> Result<NamedCpuKernel, CpuNativeError> {
     match (family, avx2, vectorizable) {
         (KernelFamily::CpuSgemmDirect, false, _) =>
             Ok((BUILTIN_GEMM, gemm_dot_f32)),
@@ -2046,14 +2049,14 @@ fn horner_leading_one(x: f64, coeff: &[f64]) -> f64 {
 }
 
 const ERF_T: [f64; 5] = [
-    9.60497373987051638749e0, 9.00260197203842689217e1,
-    2.23200534594684319226e3, 7.00332514112805075473e3,
-    5.55923013010394962768e4,
+    9.604_973_739_870_516, 9.002_601_972_038_427e1,
+    2.232_005_345_946_843e3, 7.003_325_141_128_051e3,
+    5.559_230_130_103_949e4,
 ];
 const ERF_U: [f64; 5] = [
-    3.35617141647503099647e1, 5.21357949780152679795e2,
-    4.59432382970980127987e3, 2.26290000613890934246e4,
-    4.92673942608635921086e4,
+    3.356_171_416_475_031e1, 5.213_579_497_801_527e2,
+    4.594_323_829_709_801e3, 2.262_900_006_138_909_5e4,
+    4.926_739_426_086_359e4,
 ];
 
 /// erfc(x) for finite nonnegative x; evaluated before casting to f32 so the
@@ -2068,27 +2071,27 @@ fn erfc_nonnegative_f64(x: f64) -> f64 {
     // and cannot contribute even an f32 subnormal GELU result.
     if x > 27.0 { return 0.0; }
     const P: [f64; 9] = [
-        2.46196981473530512524e-10, 5.64189564831068821977e-1,
-        7.46321056442269912687e0, 4.86371970985681366614e1,
-        1.96520832956077098242e2, 5.26445194995477358631e2,
-        9.34528527171957607540e2, 1.02755188689515710272e3,
-        5.57535335369399327526e2,
+        2.461_969_814_735_305e-10, 5.641_895_648_310_689e-1,
+        7.463_210_564_422_699, 4.863_719_709_856_814e1,
+        1.965_208_329_560_771e2, 5.264_451_949_954_773e2,
+        9.345_285_271_719_576e2, 1.027_551_886_895_157_2e3,
+        5.575_353_353_693_994e2,
     ];
     const Q: [f64; 8] = [
-        1.32281951154744992508e1, 8.67072140885989742329e1,
-        3.54937778887819891062e2, 9.75708501743205489753e2,
-        1.82390916687909736289e3, 2.24633760818710981792e3,
-        1.65666309194161350182e3, 5.57535340817727675546e2,
+        1.322_819_511_547_449_9e1, 8.670_721_408_859_897e1,
+        3.549_377_788_878_199e2, 9.757_085_017_432_055e2,
+        1.823_909_166_879_097_3e3, 2.246_337_608_187_109_7e3,
+        1.656_663_091_941_613_4e3, 5.575_353_408_177_277e2,
     ];
     const R: [f64; 6] = [
-        5.64189583547755073984e-1, 1.27536670759978104416e0,
-        5.01905042251180477414e0, 6.16021097993053585195e0,
-        7.40974269950448939160e0, 2.97886665372100240670e0,
+        5.641_895_835_477_551e-1, 1.275_366_707_599_781,
+        5.019_050_422_511_805, 6.160_210_979_930_536,
+        7.409_742_699_504_489_5, 2.978_866_653_721_002_2,
     ];
     const S: [f64; 6] = [
-        2.26052863220117276590e0, 9.39603524938001434673e0,
-        1.20489539808096656605e1, 1.70814450747565897222e1,
-        9.60896809063285878198e0, 3.36907645100081516050e0,
+        2.260_528_632_201_172_6, 9.396_035_249_380_015,
+        1.204_895_398_080_966_6e1, 1.708_144_507_475_659e1,
+        9.608_968_090_632_859, 3.369_076_451_000_815,
     ];
     let fraction = if x < 8.0 {
         horner(x, &P) / horner_leading_one(x, &Q)
@@ -2156,10 +2159,10 @@ unary_f32!(sigmoid_f32, x => sigmoid_value(x));
 // These are explicitly NaN-preserving. ReLU maps both signed zeros and
 // negative values to +0; ReLU6 caps positive values at exactly 6.
 unary_f32!(relu_f32, x => {
-    if x.is_nan() { x } else if x > 0.0 { x } else { 0.0 }
+    if x.is_nan() || x > 0.0 { x } else { 0.0 }
 });
 unary_f32!(relu6_f32, x => {
-    if x.is_nan() { x } else if x <= 0.0 { 0.0 } else if x >= 6.0 { 6.0 } else { x }
+    if x == 0.0 { 0.0 } else { x.clamp(0.0, 6.0) }
 });
 // x * sigmoid(x); handle the mathematically finite -infinity limit before
 // multiplying -infinity by an underflowed zero.
@@ -2207,10 +2210,9 @@ unary_f32!(sign_f32, x => {
     else { 1.0_f32 }
 });
 
-/// The *explicitly approximate* GELU tanh formula. This is NOT an erf GELU
-/// implementation and cannot bind either GeluErfExact or the ambiguous Gelu.
-/// Saturated endpoints avoid -infinity * 0 becoming NaN. All intermediates
-/// remain f32 under the selected strict-f32 arithmetic contract.
+// The explicitly approximate GELU tanh formula binds only GeluTanhApprox.
+// Saturated endpoints avoid -infinity * 0 becoming NaN. All intermediates
+// remain f32 under the selected strict-f32 arithmetic contract.
 unary_f32!(gelu_tanh_approx_f32, x => {
     if x == f32::NEG_INFINITY { -0.0 }
     else if x == f32::INFINITY { f32::INFINITY }
@@ -2907,8 +2909,8 @@ unsafe fn sort_values_axis_f32<const DESCENDING: bool, const NANS_FIRST: bool>(c
     for outer in 0..cmd.m {
         for inner in 0..cmd.n {
             let base = outer * row_stride + inner;
-            for position in 0..cmd.k {
-                scratch[position] = SortRecord {
+            for (position, record) in scratch.iter_mut().enumerate() {
+                *record = SortRecord {
                     bits: unsafe { (*cmd.a.add(base + position * cmd.n)).to_bits() },
                     ordinal: position,
                 };
@@ -2931,9 +2933,8 @@ unsafe fn sort_values_axis_f32<const DESCENDING: bool, const NANS_FIRST: bool>(c
                 };
                 ordering.then_with(|| left.ordinal.cmp(&right.ordinal))
             });
-            for position in 0..cmd.k {
-                unsafe { *cmd.out.add(base + position * cmd.n) =
-                    f32::from_bits(scratch[position].bits); }
+            for (position, record) in scratch.iter().enumerate() {
+                unsafe { *cmd.out.add(base + position * cmd.n) = f32::from_bits(record.bits); }
             }
         }
     }

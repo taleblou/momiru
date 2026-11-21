@@ -670,10 +670,10 @@ impl FrozenExecutionPlan {
             let nonempty = storage.physical_bytes != 0;
 
             let aligned_host = |address: usize| -> bool {
-                !nonempty || (address != 0 && address % required_alignment == 0)
+                !nonempty || (address != 0 && address.is_multiple_of(required_alignment))
             };
             let aligned_device = |address: u64| -> bool {
-                !nonempty || (address != 0 && address % required_alignment as u64 == 0)
+                !nonempty || (address != 0 && address.is_multiple_of(required_alignment as u64))
             };
 
             let valid = match (arena.class, binding.buffer) {
@@ -1059,7 +1059,7 @@ impl<'a, B: BoundBackend> BoundExecution<'a, B> {
     /// the caller can access their input/output slices again.
     /// No per-replay catch_unwind closure/panic payload dispatch is required.
     pub fn replay(&mut self) -> Result<(), B::Error> {
-        let mut guard = ReplayQuiescenceGuard { backend: &mut self.backend };
+        let guard = ReplayQuiescenceGuard { backend: &mut self.backend };
         Self::dispatch_frozen_steps(&mut *guard.backend, &self.replay_steps)
     }
 
@@ -1069,34 +1069,34 @@ impl<'a, B: BoundBackend> BoundExecution<'a, B> {
         for step in steps {
             match step {
                 ReplayStep::CpuNode { node, kernel } => {
-                    backend.execute_cpu_node(*node, *kernel)?;
+                    backend.execute_cpu_node(node, kernel)?;
                 }
                 ReplayStep::GpuNode { node, kernel } => {
-                    backend.execute_gpu_node(*node, *kernel)?;
+                    backend.execute_gpu_node(node, kernel)?;
                 }
                 ReplayStep::CpuSlice { node, slice_index, slice, kernel } => {
-                    backend.launch_cpu_slice(*node, *slice_index, *slice, *kernel)?;
+                    backend.launch_cpu_slice(node, *slice_index, slice, kernel)?;
                 }
                 ReplayStep::GpuSlice { node, slice_index, slice, kernel } => {
-                    backend.launch_gpu_slice(*node, *slice_index, *slice, *kernel)?;
+                    backend.launch_gpu_slice(node, *slice_index, slice, kernel)?;
                 }
                 ReplayStep::CpuGpuComplete { node, slice_index, slice } => {
-                    backend.complete_cpu_gpu_slice(*node, *slice_index, *slice)?;
+                    backend.complete_cpu_gpu_slice(node, *slice_index, slice)?;
                 }
                 ReplayStep::GpuGraphSegment(segment) => {
-                    backend.execute_gpu_graph_segment(*segment)?;
+                    backend.execute_gpu_graph_segment(segment)?;
                 }
                 ReplayStep::Transfer(transfer) => {
-                    backend.execute_transfer(*transfer)?;
+                    backend.execute_transfer(transfer)?;
                 }
                 ReplayStep::HostReadback { transfer, boundary } => {
-                    backend.execute_host_readback(*transfer, *boundary)?;
+                    backend.execute_host_readback(transfer, *boundary)?;
                 }
                 ReplayStep::TransferBatch(batch) => {
-                    backend.execute_transfer_batch(*batch)?;
+                    backend.execute_transfer_batch(batch)?;
                 }
                 ReplayStep::Sync(sync) => {
-                    backend.execute_sync(*sync)?;
+                    backend.execute_sync(sync)?;
                 }
             }
         }

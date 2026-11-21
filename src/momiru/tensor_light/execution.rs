@@ -470,6 +470,7 @@ pub(crate) const fn arena_guarantees_slot_alignment(
 #[cfg(test)]
 #[path = "../../tests/tensor_light/unit/execution/slot_alignment_regression.rs"]
 mod slot_alignment_regression;
+mod flip_alias;
 mod ir;
 mod plan;
 mod runtime;

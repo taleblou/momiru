@@ -124,6 +124,7 @@
 
 use crate::tensor_light::tensor::DType;
 
+use super::flip_alias::flipped_alias_delta;
 use super::ir::{
     canonical_broadcast_extent, canonical_elementwise_broadcast_signature, AccuracyContract, AxisSelector, AttentionMaskKind, DenseLinalgKind,
     ElementwiseKind, FourierTransformKind, KernelMathMode, LayoutKind, NodeId, NormalizationKind,
@@ -3959,37 +3960,9 @@ impl FrozenExecutionPlan {
                 {
                     return Err(PlanError::InvalidKernelFamily);
                 }
-                let mut delta = 0i128;
-                let mut axis = 0usize;
-                while axis < input.shape.rank() {
-                    let mut flipped = false;
-                    let mut i = 0usize;
-                    while i < usize::from(axes.len) {
-                        if usize::from(axes.axes[i]) == axis {
-                            flipped = true;
-                            break;
-                        }
-                        i += 1;
-                    }
-                    let source_stride = src.physical_layout.strides[axis];
-                    let expected_stride = if flipped { -source_stride } else { source_stride };
-                    if dst.physical_layout.strides[axis] != expected_stride {
-                        return Err(PlanError::InvalidKernelFamily);
-                    }
-                    if flipped {
-                        let extent = input.shape.dim(axis).ok_or(PlanError::InvalidKernelFamily)?;
-                        let extent = i128::try_from(extent.saturating_sub(1))
-                            .map_err(|_| PlanError::InvalidKernelFamily)?;
-                        delta = delta
-                            .checked_add(
-                                extent
-                                    .checked_mul(source_stride as i128)
-                                    .ok_or(PlanError::InvalidKernelFamily)?,
-                            )
-                            .ok_or(PlanError::InvalidKernelFamily)?;
-                    }
-                    axis += 1;
-                }
+                let delta = flipped_alias_delta(
+                    &input.shape, axes, &src.physical_layout, &dst.physical_layout,
+                )?;
                 if dst.base_offset_bytes != expected_base(delta)? {
                     return Err(PlanError::InvalidKernelFamily);
                 }

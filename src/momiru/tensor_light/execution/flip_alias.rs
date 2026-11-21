@@ -92,4 +92,40 @@ mod tests {
             Err(PlanError::InvalidKernelFamily)
         );
     }
+
+    #[test]
+    fn flipping_two_axes_preserves_every_address_in_a_gapped_or_broadcast_layout() {
+        let shape = StaticShape::Rank3([3, 1, 4]);
+        let mut axes = AxisList::empty();
+        axes.len = 2;
+        axes.axes[..2].copy_from_slice(&[2, 0]);
+        assert_eq!(axes.validate_for_rank(shape.rank()), Ok(()));
+
+        for inner_stride in [0isize, 2] {
+            let mut source = strided(-5, isize::MIN);
+            source.strides[2] = inner_stride;
+            let mut output = strided(5, isize::MIN);
+            output.strides[2] = -inner_stride;
+
+            assert_eq!(source.validate_for(&shape), Ok(()));
+            assert_eq!(output.validate_for(&shape), Ok(()));
+            let delta = flipped_alias_delta(&shape, axes, &source, &output).unwrap();
+            for row in 0..3i128 {
+                for col in 0..4i128 {
+                    let source_address = 10 - 5 * (2 - row) + (inner_stride as i128) * (3 - col);
+                    let output_address = 10 + delta + 5 * row - (inner_stride as i128) * col;
+                    assert_eq!(output_address, source_address);
+                }
+            }
+
+            // A plausible transposed or copied stride descriptor can still
+            // have valid metadata but must fail the exact alias check.
+            output.strides[0] = 3;
+            assert_eq!(output.validate_for(&shape), Ok(()));
+            assert_eq!(
+                flipped_alias_delta(&shape, axes, &source, &output),
+                Err(PlanError::InvalidKernelFamily)
+            );
+        }
+    }
 }

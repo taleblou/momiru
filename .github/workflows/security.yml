@@ -15,12 +15,22 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
-      - name: Install pinned Rust
-        run: rustup toolchain install 1.99.1 --profile minimal --component clippy --component rustfmt
-      - name: Install pinned RustSec cargo-audit
-        run: cargo install --locked --version 0.22.2 cargo-audit
-      - name: Audit Cargo.lock against current RustSec advisories
-        run: cargo audit --file Cargo.lock
+      - name: Audit Cargo.lock with pinned RustSec cargo-audit
+        shell: bash
+        run: |
+          version=0.22.2
+          asset="cargo-audit-x86_64-unknown-linux-musl-v${version}"
+          sha256=7fb9497f8594b389e5fce5ef9b92db08432996895b2e0c5a0167a69ed445c428
+          audit_dir=$(mktemp -d)
+          trap 'rm -rf -- "$audit_dir"' EXIT
+
+          archive="$audit_dir/$asset.tgz"
+          curl --fail --silent --show-error --location --retry 3 \
+            --output "$archive" \
+            "https://github.com/rustsec/rustsec/releases/download/cargo-audit/v${version}/${asset}.tgz"
+          printf '%s  %s\n' "$sha256" "$archive" | sha256sum --check
+          tar -xzf "$archive" -C "$audit_dir" "$asset/cargo-audit"
+          "$audit_dir/$asset/cargo-audit" audit --file Cargo.lock
   release-configuration:
     runs-on: ubuntu-latest
     steps:

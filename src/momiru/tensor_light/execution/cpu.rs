@@ -135,19 +135,19 @@
 //! vendor libraries and compiler-generated kernels require a separate trusted
 //! catalog and independently executed attestation before release.
 
-use std::sync::OnceLock;
 use std::ptr;
+use std::sync::OnceLock;
 
 use super::{
-    ArtifactKind, Backend, BindingAccess, BoundBackend, BufferHandle,
-    CpuDispatchMode, CpuKernelPlan, CpuParallelKind, CpuKernelSource, RustFloatMode,
-    RustCodegenPlan, RustPanicStrategy, LtoMode, PgoMode, PostLinkOptimization,
-    PrefetchKind, StorePolicy, NumaPolicy, WorkerWaitPolicy, ElementwiseKind, ScalarElementwiseKind, ReductionKind, AxisSelector, ScanKind, ScanOutput, SortOutput, SortNanPolicy, NormalizationKind, AxisMask, AxisList,
-    FrozenExecutionPlan, FrozenNode, KernelFamily, KernelMathMode,
-    LayoutKind, MemoryClass, HostMemoryPolicy, DeviceAllocationPolicy,
-    MemoryArenaPlan, PagePolicy, Operation, Placement, PlanError,
-    RuntimeCapabilityBinding, ScheduleItem, StaticShape, StorageAccess, WorkRange,
-    StorageBinding, TensorSpec, cpu_feature, FeatureMask,
+    cpu_feature, ArtifactKind, AxisList, AxisMask, AxisSelector, Backend, BindingAccess,
+    BoundBackend, BufferHandle, CpuDispatchMode, CpuKernelPlan, CpuKernelSource, CpuParallelKind,
+    DeviceAllocationPolicy, ElementwiseKind, FeatureMask, FrozenExecutionPlan, FrozenNode,
+    HostMemoryPolicy, KernelFamily, KernelMathMode, LayoutKind, LtoMode, MemoryArenaPlan,
+    MemoryClass, NormalizationKind, NumaPolicy, Operation, PagePolicy, PgoMode, Placement,
+    PlanError, PostLinkOptimization, PrefetchKind, ReductionKind, RuntimeCapabilityBinding,
+    RustCodegenPlan, RustFloatMode, RustPanicStrategy, ScalarElementwiseKind, ScanKind, ScanOutput,
+    ScheduleItem, SortNanPolicy, SortOutput, StaticShape, StorageAccess, StorageBinding,
+    StorePolicy, TensorSpec, WorkRange, WorkerWaitPolicy,
 };
 use crate::tensor_light::tensor::DType;
 
@@ -212,7 +212,8 @@ pub const BUILTIN_EXPM1: &str = "expm1_contiguous_f32";
 pub const BUILTIN_LOG: &str = "log_contiguous_f32";
 pub const BUILTIN_LOG_NONPOSITIVE_TO_NEG87: &str = "log_nonpositive_to_neg87_contiguous_f32";
 pub const BUILTIN_LOG1P: &str = "log1p_contiguous_f32";
-pub const BUILTIN_LOG1P_BELOW_MINUS_ONE_TO_NEG87: &str = "log1p_below_minus_one_to_neg87_contiguous_f32";
+pub const BUILTIN_LOG1P_BELOW_MINUS_ONE_TO_NEG87: &str =
+    "log1p_below_minus_one_to_neg87_contiguous_f32";
 pub const BUILTIN_LOG1P_ABS: &str = "log1p_abs_contiguous_f32";
 pub const BUILTIN_SIN: &str = "sin_contiguous_f32";
 pub const BUILTIN_COS: &str = "cos_contiguous_f32";
@@ -284,7 +285,8 @@ pub const BUILTIN_INSTANCE_NORM_AXES: &str = "instance_norm_population_arbitrary
 // A GroupNorm with channel axis 1 (or one group) is physically contiguous
 // per group and reuses the direct f32 LayerNorm-style population kernel.
 pub const BUILTIN_GROUP_NORM_CONTIGUOUS: &str = "group_norm_population_contiguous_groups_f32";
-pub const BUILTIN_GROUP_NORM_CHANNEL_AXIS: &str = "group_norm_population_arbitrary_channel_axis_f32";
+pub const BUILTIN_GROUP_NORM_CHANNEL_AXIS: &str =
+    "group_norm_population_arbitrary_channel_axis_f32";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CpuNativeError {
@@ -340,13 +342,24 @@ pub fn configure_builtin_cpu(
         || (artifact_hash_hi | artifact_hash_lo) == 0
         || capabilities.hardware.validate_canonical().is_err()
         || capabilities.memory_topology.canonical_hash()
-            != (capabilities.memory_topology_hash_hi, capabilities.memory_topology_hash_lo)
+            != (
+                capabilities.memory_topology_hash_hi,
+                capabilities.memory_topology_hash_lo,
+            )
     {
         return Err(CpuNativeError::InvalidCapabilities);
     }
-    let install = CpuInstallation { capabilities, artifact_hash_hi, artifact_hash_lo };
+    let install = CpuInstallation {
+        capabilities,
+        artifact_hash_hi,
+        artifact_hash_lo,
+    };
     if let Some(previous) = INSTALLED_CPU.get() {
-        return if *previous == install { Ok(()) } else { Err(CpuNativeError::AlreadyConfigured) };
+        return if *previous == install {
+            Ok(())
+        } else {
+            Err(CpuNativeError::AlreadyConfigured)
+        };
     }
     match INSTALLED_CPU.set(install) {
         Ok(()) => Ok(()),
@@ -371,7 +384,9 @@ struct PhysicalRange {
 impl PhysicalRange {
     #[inline]
     fn disjoint_from(self, other: Self) -> bool {
-        if self.bytes == 0 || other.bytes == 0 { return true; }
+        if self.bytes == 0 || other.bytes == 0 {
+            return true;
+        }
         let a = self.start as u128;
         let b = other.start as u128;
         a + self.bytes as u128 <= b || b + other.bytes as u128 <= a
@@ -389,7 +404,9 @@ struct Span {
 impl Span {
     #[inline]
     fn disjoint_from(self, other: Self) -> bool {
-        if self.len == 0 || other.len == 0 { return true; }
+        if self.len == 0 || other.len == 0 {
+            return true;
+        }
         let a = self.ptr as usize as u128;
         let b = other.ptr as usize as u128;
         let a_end = a + self.len as u128 * 4;
@@ -415,6 +432,9 @@ struct SortRecord {
     ordinal: usize,
 }
 
+type CpuKernelEntry = unsafe fn(&CpuCommand);
+type NamedCpuKernel = (&'static str, CpuKernelEntry);
+
 #[derive(Clone, Copy)]
 struct CpuCommand {
     a: *const f32,
@@ -432,7 +452,7 @@ struct CpuCommand {
     scalar1: f32,
     arbitrary_axes: Option<ArbitraryAxes>,
     sort_scratch: *mut SortRecord,
-    entry: unsafe fn(&CpuCommand),
+    entry: CpuKernelEntry,
 }
 
 /// Prepared nodes are indexed by frozen node ID. No runtime map/hash/probing.
@@ -449,9 +469,13 @@ unsafe impl BoundBackend for BoundCpuNative {
 
     #[inline]
     fn execute_cpu_node(
-        &mut self, node: &'static FrozenNode, _kernel: &'static CpuKernelPlan,
+        &mut self,
+        node: &'static FrozenNode,
+        _kernel: &'static CpuKernelPlan,
     ) -> Result<(), Self::Error> {
-        let command = self.commands.get(node.id as usize)
+        let command = self
+            .commands
+            .get(node.id as usize)
             .and_then(Option::as_ref)
             .ok_or(CpuNativeError::InvalidNode)?;
         // SAFETY: `CpuNativeBackend::bind_resources` checked all source/output
@@ -461,28 +485,59 @@ unsafe impl BoundBackend for BoundCpuNative {
         Ok(())
     }
 
-    fn execute_gpu_node(&mut self, _: &'static FrozenNode, _: &'static super::GpuKernelPlan) -> Result<(), Self::Error> {
+    fn execute_gpu_node(
+        &mut self,
+        _: &'static FrozenNode,
+        _: &'static super::GpuKernelPlan,
+    ) -> Result<(), Self::Error> {
         Err(CpuNativeError::UnsupportedDevice)
     }
-    fn launch_cpu_slice(&mut self, _: &'static FrozenNode, _: u16, _: &'static super::CpuGpuSlice, _: &'static CpuKernelPlan) -> Result<(), Self::Error> {
+    fn launch_cpu_slice(
+        &mut self,
+        _: &'static FrozenNode,
+        _: u16,
+        _: &'static super::CpuGpuSlice,
+        _: &'static CpuKernelPlan,
+    ) -> Result<(), Self::Error> {
         Err(CpuNativeError::UnsupportedDevice)
     }
-    fn launch_gpu_slice(&mut self, _: &'static FrozenNode, _: u16, _: &'static super::CpuGpuSlice, _: &'static super::GpuKernelPlan) -> Result<(), Self::Error> {
+    fn launch_gpu_slice(
+        &mut self,
+        _: &'static FrozenNode,
+        _: u16,
+        _: &'static super::CpuGpuSlice,
+        _: &'static super::GpuKernelPlan,
+    ) -> Result<(), Self::Error> {
         Err(CpuNativeError::UnsupportedDevice)
     }
-    fn complete_cpu_gpu_slice(&mut self, _: &'static FrozenNode, _: u16, _: &'static super::CpuGpuSlice) -> Result<(), Self::Error> {
+    fn complete_cpu_gpu_slice(
+        &mut self,
+        _: &'static FrozenNode,
+        _: u16,
+        _: &'static super::CpuGpuSlice,
+    ) -> Result<(), Self::Error> {
         Err(CpuNativeError::UnsupportedDevice)
     }
-    fn execute_gpu_graph_segment(&mut self, _: &'static super::GpuGraphSegmentPlan) -> Result<(), Self::Error> {
+    fn execute_gpu_graph_segment(
+        &mut self,
+        _: &'static super::GpuGraphSegmentPlan,
+    ) -> Result<(), Self::Error> {
         Err(CpuNativeError::UnsupportedDevice)
     }
     fn execute_transfer(&mut self, _: &'static super::TransferPlan) -> Result<(), Self::Error> {
         Err(CpuNativeError::UnsupportedDevice)
     }
-    fn execute_host_readback(&mut self, _: &'static super::TransferPlan, _: super::HostBoundaryClass) -> Result<(), Self::Error> {
+    fn execute_host_readback(
+        &mut self,
+        _: &'static super::TransferPlan,
+        _: super::HostBoundaryClass,
+    ) -> Result<(), Self::Error> {
         Err(CpuNativeError::UnsupportedDevice)
     }
-    fn execute_transfer_batch(&mut self, _: &'static super::TransferBatchPlan) -> Result<(), Self::Error> {
+    fn execute_transfer_batch(
+        &mut self,
+        _: &'static super::TransferBatchPlan,
+    ) -> Result<(), Self::Error> {
         Err(CpuNativeError::UnsupportedDevice)
     }
     fn execute_sync(&mut self, _: &'static super::SyncPlan) -> Result<(), Self::Error> {
@@ -498,7 +553,9 @@ unsafe impl Backend for CpuNativeBackend {
     type Error = CpuNativeError;
 
     fn bind_capabilities() -> Result<RuntimeCapabilityBinding, Self::Error> {
-        INSTALLED_CPU.get().map(|item| item.capabilities)
+        INSTALLED_CPU
+            .get()
+            .map(|item| item.capabilities)
             .ok_or(CpuNativeError::NotConfigured)
     }
 
@@ -516,14 +573,20 @@ unsafe impl Backend for CpuNativeBackend {
         // This is an unsafe entrypoint: direct callers MUST establish both
         // preconditions (documented on Backend::bind_resources) themselves.
         // Repeating complete graph checks here would penalize every warm bind.
-        if !plan.execution_contexts.is_empty() || !plan.streams.is_empty()
-            || !plan.events.is_empty() || !plan.gpu_graph_segments.is_empty()
-            || !plan.transfers.is_empty() || !plan.transfer_batches.is_empty()
+        if !plan.execution_contexts.is_empty()
+            || !plan.streams.is_empty()
+            || !plan.events.is_empty()
+            || !plan.gpu_graph_segments.is_empty()
+            || !plan.transfers.is_empty()
+            || !plan.transfer_batches.is_empty()
             || !plan.synchronization.is_empty()
         {
             return Err(CpuNativeError::UnsupportedDevice);
         }
-        if plan.arenas.iter().any(|arena| !builtin_host_arena_admissible(arena))
+        if plan
+            .arenas
+            .iter()
+            .any(|arena| !builtin_host_arena_admissible(arena))
             || plan.storages.iter().any(|storage| {
                 storage.residency != super::ResidencyPolicy::ExternalBound
                     || storage.external_alias_of.is_some()
@@ -532,7 +595,8 @@ unsafe impl Backend for CpuNativeBackend {
             return Err(CpuNativeError::UnsupportedMemory);
         }
         let mut commands = Vec::new();
-        commands.try_reserve_exact(plan.nodes.len())
+        commands
+            .try_reserve_exact(plan.nodes.len())
             .map_err(|_| CpuNativeError::UnsupportedMemory)?;
         commands.resize(plan.nodes.len(), None);
         let mut maximum_sort_axis = 0usize;
@@ -557,7 +621,11 @@ unsafe impl Backend for CpuNativeBackend {
         for item in plan.schedule {
             match item {
                 ScheduleItem::Node(id) => {
-                    if commands.get(*id as usize).and_then(Option::as_ref).is_none() {
+                    if commands
+                        .get(*id as usize)
+                        .and_then(Option::as_ref)
+                        .is_none()
+                    {
                         return Err(CpuNativeError::InvalidNode);
                     }
                 }
@@ -571,20 +639,33 @@ unsafe impl Backend for CpuNativeBackend {
         // replaced once these raw pointers are installed.
         let mut sort_scratch: Vec<SortRecord> = Vec::new();
         if maximum_sort_axis != 0 {
-            sort_scratch.try_reserve_exact(maximum_sort_axis)
+            sort_scratch
+                .try_reserve_exact(maximum_sort_axis)
                 .map_err(|_| CpuNativeError::UnsupportedMemory)?;
-            sort_scratch.resize(maximum_sort_axis, SortRecord { bits: 0, ordinal: 0 });
+            sort_scratch.resize(
+                maximum_sort_axis,
+                SortRecord {
+                    bits: 0,
+                    ordinal: 0,
+                },
+            );
             let shared = sort_scratch.as_mut_ptr();
             for node in plan.nodes {
                 if matches!(node.operation, Operation::Sort(_)) {
-                    let command = commands.get_mut(node.id as usize)
+                    let command = commands
+                        .get_mut(node.id as usize)
                         .and_then(Option::as_mut)
                         .ok_or(CpuNativeError::InvalidNode)?;
-                    if command.len != 0 { command.sort_scratch = shared; }
+                    if command.len != 0 {
+                        command.sort_scratch = shared;
+                    }
                 }
             }
         }
-        Ok(BoundCpuNative { commands, _sort_scratch: sort_scratch })
+        Ok(BoundCpuNative {
+            commands,
+            _sort_scratch: sort_scratch,
+        })
     }
 }
 
@@ -611,21 +692,36 @@ fn builtin_host_arena_admissible(arena: &MemoryArenaPlan) -> bool {
 }
 
 fn resolve_span(
-    plan: &FrozenExecutionPlan, storage_id: u32, bindings: &[StorageBinding<'_>],
+    plan: &FrozenExecutionPlan,
+    storage_id: u32,
+    bindings: &[StorageBinding<'_>],
 ) -> Result<Span, CpuNativeError> {
-    let storage = plan.storages.get(storage_id as usize)
+    let storage = plan
+        .storages
+        .get(storage_id as usize)
         .filter(|item| item.id == storage_id)
         .ok_or(CpuNativeError::MissingBinding)?;
-    let tensor: &TensorSpec = plan.tensors.iter().find(|item| item.id == storage.tensor)
+    let tensor: &TensorSpec = plan
+        .tensors
+        .iter()
+        .find(|item| item.id == storage.tensor)
         .ok_or(CpuNativeError::InvalidShape)?;
     if tensor.dtype != DType::F32
         || storage.physical_layout.kind != LayoutKind::RowMajorContiguous
-        || !storage.physical_layout.is_row_major_contiguous_for(&tensor.shape)
+        || !storage
+            .physical_layout
+            .is_row_major_contiguous_for(&tensor.shape)
     {
         return Err(CpuNativeError::UnsupportedLayout);
     }
-    let count = tensor.shape.element_count().ok_or(CpuNativeError::InvalidShape)?;
-    let bytes = tensor.shape.byte_count(DType::F32).ok_or(CpuNativeError::InvalidShape)?;
+    let count = tensor
+        .shape
+        .element_count()
+        .ok_or(CpuNativeError::InvalidShape)?;
+    let bytes = tensor
+        .shape
+        .byte_count(DType::F32)
+        .ok_or(CpuNativeError::InvalidShape)?;
     // A contiguous tensor can occupy an offset subregion of its own physical
     // storage. Preserve the frozen base-offset and reject anything not fully
     // covered by the certified physical allocation (including arithmetic
@@ -633,15 +729,21 @@ fn resolve_span(
     if !contiguous_payload_fits(storage.physical_bytes, storage.base_offset_bytes, bytes) {
         return Err(CpuNativeError::UnsupportedLayout);
     }
-    let slot = plan.memory_slots.get(storage.slot as usize)
+    let slot = plan
+        .memory_slots
+        .get(storage.slot as usize)
         .filter(|item| item.id == storage.slot)
         .ok_or(CpuNativeError::MissingBinding)?;
-    let byte_offset = slot.offset_bytes.checked_add(storage.base_offset_bytes)
+    let byte_offset = slot
+        .offset_bytes
+        .checked_add(storage.base_offset_bytes)
         .ok_or(CpuNativeError::InvalidShape)?;
     if byte_offset % core::mem::align_of::<f32>() != 0 {
         return Err(CpuNativeError::UnsupportedLayout);
     }
-    let binding = bindings.iter().find(|item| item.storage() == storage_id)
+    let binding = bindings
+        .iter()
+        .find(|item| item.storage() == storage_id)
         .ok_or(CpuNativeError::MissingBinding)?;
     // Validate the real external binding's element type even when the unsafe
     // backend entry is invoked directly instead of through PreparedExecution.
@@ -653,24 +755,35 @@ fn resolve_span(
         _ => return Err(CpuNativeError::UnsupportedMemory),
     };
     if handle.bytes > isize::MAX as usize
-        || (handle.bytes != 0 && (handle.address == 0
-            || handle.address.checked_add(handle.bytes).is_none()))
+        || (handle.bytes != 0
+            && (handle.address == 0 || handle.address.checked_add(handle.bytes).is_none()))
     {
         return Err(CpuNativeError::InvalidShape);
     }
-    if byte_offset.checked_add(bytes).is_none_or(|total| total > handle.bytes) {
+    if byte_offset
+        .checked_add(bytes)
+        .is_none_or(|total| total > handle.bytes)
+    {
         return Err(CpuNativeError::InvalidShape);
     }
     // The physical storage may include unused padding beyond the logical
     // payload. Binding must prove that the *entire* frozen region fits both
     // its slot and the real external buffer before a noalias promise is used.
-    if !physical_storage_fits(slot.offset_bytes, slot.bytes, storage.physical_bytes, handle.bytes) {
+    if !physical_storage_fits(
+        slot.offset_bytes,
+        slot.bytes,
+        storage.physical_bytes,
+        handle.bytes,
+    ) {
         return Err(CpuNativeError::InvalidShape);
     }
     let physical_start = if storage.physical_bytes == 0 {
         0
     } else {
-        handle.address.checked_add(slot.offset_bytes).ok_or(CpuNativeError::InvalidShape)?
+        handle
+            .address
+            .checked_add(slot.offset_bytes)
+            .ok_or(CpuNativeError::InvalidShape)?
     };
     // Exposed-provenance round trip is necessary because StorageBinding's
     // published host-handle ABI uses integer addresses. Never construct a
@@ -678,7 +791,10 @@ fn resolve_span(
     let address = if count == 0 {
         core::ptr::NonNull::<f32>::dangling().as_ptr()
     } else {
-        let address = handle.address.checked_add(byte_offset).ok_or(CpuNativeError::InvalidShape)?;
+        let address = handle
+            .address
+            .checked_add(byte_offset)
+            .ok_or(CpuNativeError::InvalidShape)?;
         if address == 0 || address % core::mem::align_of::<f32>() != 0 {
             return Err(CpuNativeError::UnsupportedLayout);
         }
@@ -688,7 +804,10 @@ fn resolve_span(
         ptr: address,
         len: count,
         shape: tensor.shape,
-        physical: PhysicalRange { start: physical_start, bytes: storage.physical_bytes },
+        physical: PhysicalRange {
+            start: physical_start,
+            bytes: storage.physical_bytes,
+        },
     })
 }
 
@@ -697,10 +816,14 @@ fn resolve_span(
 /// All addition is checked; this helper runs only during BIND.
 #[inline]
 fn physical_storage_fits(
-    slot_offset: usize, slot_bytes: usize, storage_bytes: usize, bound_bytes: usize,
+    slot_offset: usize,
+    slot_bytes: usize,
+    storage_bytes: usize,
+    bound_bytes: usize,
 ) -> bool {
     storage_bytes <= slot_bytes
-        && slot_offset.checked_add(storage_bytes)
+        && slot_offset
+            .checked_add(storage_bytes)
             .is_some_and(|end| end <= bound_bytes)
 }
 
@@ -709,8 +832,10 @@ fn physical_storage_fits(
 /// overflowing offsets cannot be converted into a raw f32 pointer.
 #[inline]
 fn contiguous_payload_fits(physical_bytes: usize, base_bytes: usize, data_bytes: usize) -> bool {
-    base_bytes % core::mem::size_of::<f32>() == 0
-        && base_bytes.checked_add(data_bytes).is_some_and(|end| end <= physical_bytes)
+    base_bytes.is_multiple_of(core::mem::size_of::<f32>())
+        && base_bytes
+            .checked_add(data_bytes)
+            .is_some_and(|end| end <= physical_bytes)
 }
 
 /// Only one caller-thread worker covering the FULL flattened output is
@@ -766,29 +891,54 @@ pub fn builtin_cpu_release_profile_matches() -> bool {
 #[doc(hidden)]
 #[inline(never)]
 pub fn builtin_cpu_release_kernel_selfcheck() -> bool {
-    if !builtin_release_image_admissible() { return false; }
+    if !builtin_release_image_admissible() {
+        return false;
+    }
     // black_box prevents a whole-program optimizer from trivially replacing
     // the fixed-vector checks with a compile-time Boolean constant.
     let a = std::hint::black_box([1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]);
     let b = std::hint::black_box([2.0f32, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]);
     let mut out = [f32::NAN; 9];
     let command = CpuCommand {
-        a: a.as_ptr(), b: b.as_ptr(), out: out.as_mut_ptr(),
-        len: 9, m: 0, k: 0, n: 0,
-        transpose_lhs: false, transpose_rhs: false,
-        lhs_vector: false, rhs_vector: false,
-        scalar0: 0.0, scalar1: 0.0, arbitrary_axes: None, sort_scratch: ptr::null_mut(), entry: add_f32,
+        a: a.as_ptr(),
+        b: b.as_ptr(),
+        out: out.as_mut_ptr(),
+        len: 9,
+        m: 0,
+        k: 0,
+        n: 0,
+        transpose_lhs: false,
+        transpose_rhs: false,
+        lhs_vector: false,
+        rhs_vector: false,
+        scalar0: 0.0,
+        scalar1: 0.0,
+        arbitrary_axes: None,
+        sort_scratch: ptr::null_mut(),
+        entry: add_f32,
     };
-    unsafe { add_f32(&command); }
+    unsafe {
+        add_f32(&command);
+    }
     let expected = [3.0f32, 5.0, 7.0, 9.0, 11.0, 13.0, 15.0, 17.0, 19.0];
-    if out.iter().zip(expected).any(|(actual, reference)| actual.to_bits() != reference.to_bits()) {
+    if out
+        .iter()
+        .zip(expected)
+        .any(|(actual, reference)| actual.to_bits() != reference.to_bits())
+    {
         return false;
     }
     #[cfg(target_arch = "x86_64")]
     if std::is_x86_feature_detected!("avx2") {
         out.fill(f32::NAN);
-        unsafe { add_avx2(&command); }
-        if out.iter().zip(expected).any(|(actual, reference)| actual.to_bits() != reference.to_bits()) {
+        unsafe {
+            add_avx2(&command);
+        }
+        if out
+            .iter()
+            .zip(expected)
+            .any(|(actual, reference)| actual.to_bits() != reference.to_bits())
+        {
             return false;
         }
     }
@@ -797,175 +947,360 @@ pub fn builtin_cpu_release_kernel_selfcheck() -> bool {
     // compare exact f32 bits against the independent scalar instruction path.
     #[cfg(target_arch = "x86_64")]
     if std::is_x86_feature_detected!("avx2") {
-        unsafe { div_f32(&command); }
+        unsafe {
+            div_f32(&command);
+        }
         let scalar_div_bits = out.map(f32::to_bits);
         out.fill(f32::NAN);
-        unsafe { div_avx2(&command); }
-        if out.map(f32::to_bits) != scalar_div_bits { return false; }
+        unsafe {
+            div_avx2(&command);
+        }
+        if out.map(f32::to_bits) != scalar_div_bits {
+            return false;
+        }
     }
 
     // Sign is a separate frozen entry: signed zeros must not turn into
     // +/-1 as they would with f32::signum, and NaN must not become zero.
-    let sign_input = std::hint::black_box([-0.0_f32, 0.0, -3.0, 2.0,
-        f32::NEG_INFINITY, f32::INFINITY, f32::NAN]);
+    let sign_input = std::hint::black_box([
+        -0.0_f32,
+        0.0,
+        -3.0,
+        2.0,
+        f32::NEG_INFINITY,
+        f32::INFINITY,
+        f32::NAN,
+    ]);
     let mut sign_output = [42.0_f32; 7];
     let sign_cmd = CpuCommand {
-        a: sign_input.as_ptr(), b: ptr::null(), out: sign_output.as_mut_ptr(),
-        len: sign_input.len(), m: 0, k: 0, n: 0,
-        transpose_lhs: false, transpose_rhs: false,
-        lhs_vector: false, rhs_vector: false,
-        scalar0: 0.0, scalar1: 0.0, arbitrary_axes: None, sort_scratch: ptr::null_mut(), entry: sign_f32,
+        a: sign_input.as_ptr(),
+        b: ptr::null(),
+        out: sign_output.as_mut_ptr(),
+        len: sign_input.len(),
+        m: 0,
+        k: 0,
+        n: 0,
+        transpose_lhs: false,
+        transpose_rhs: false,
+        lhs_vector: false,
+        rhs_vector: false,
+        scalar0: 0.0,
+        scalar1: 0.0,
+        arbitrary_axes: None,
+        sort_scratch: ptr::null_mut(),
+        entry: sign_f32,
     };
-    unsafe { sign_f32(&sign_cmd); }
+    unsafe {
+        sign_f32(&sign_cmd);
+    }
     if sign_output[0].to_bits() != (-0.0_f32).to_bits()
         || sign_output[1].to_bits() != 0.0_f32.to_bits()
-        || sign_output[2] != -1.0 || sign_output[3] != 1.0
-        || sign_output[4] != -1.0 || sign_output[5] != 1.0
+        || sign_output[2] != -1.0
+        || sign_output[3] != 1.0
+        || sign_output[4] != -1.0
+        || sign_output[5] != 1.0
         || !sign_output[6].is_nan()
-    { return false; }
+    {
+        return false;
+    }
 
     let matrix_a = std::hint::black_box([1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0]);
     let matrix_b = std::hint::black_box([7.0f32, 8.0, 9.0, 10.0, 11.0, 12.0]);
     let mut matrix_out = [f32::NAN; 4];
     let matrix = CpuCommand {
-        a: matrix_a.as_ptr(), b: matrix_b.as_ptr(), out: matrix_out.as_mut_ptr(),
-        len: 4, m: 2, k: 3, n: 2,
-        transpose_lhs: false, transpose_rhs: false,
-        lhs_vector: false, rhs_vector: false,
-        scalar0: 0.0, scalar1: 0.0, arbitrary_axes: None, sort_scratch: ptr::null_mut(), entry: gemm_dot_f32,
+        a: matrix_a.as_ptr(),
+        b: matrix_b.as_ptr(),
+        out: matrix_out.as_mut_ptr(),
+        len: 4,
+        m: 2,
+        k: 3,
+        n: 2,
+        transpose_lhs: false,
+        transpose_rhs: false,
+        lhs_vector: false,
+        rhs_vector: false,
+        scalar0: 0.0,
+        scalar1: 0.0,
+        arbitrary_axes: None,
+        sort_scratch: ptr::null_mut(),
+        entry: gemm_dot_f32,
     };
     let expected_matrix = [58.0f32, 64.0, 139.0, 154.0];
-    unsafe { gemm_dot_f32(&matrix); }
-    if matrix_out != expected_matrix { return false; }
-    unsafe { gemm_axpy_f32(&matrix); }
-    if matrix_out != expected_matrix { return false; }
+    unsafe {
+        gemm_dot_f32(&matrix);
+    }
+    if matrix_out != expected_matrix {
+        return false;
+    }
+    unsafe {
+        gemm_axpy_f32(&matrix);
+    }
+    if matrix_out != expected_matrix {
+        return false;
+    }
     #[cfg(target_arch = "x86_64")]
     if std::is_x86_feature_detected!("avx2") {
-        unsafe { gemm_avx2(&matrix); }
-        if matrix_out != expected_matrix { return false; }
+        unsafe {
+            gemm_avx2(&matrix);
+        }
+        if matrix_out != expected_matrix {
+            return false;
+        }
     }
     // These compatibility modes have distinct names and numeric behavior.
     // Verify the linked Release image, not just source-level Rust unit tests.
-    let special = std::hint::black_box([-4.0_f32, -1.0, -0.0, 0.0, 0.25, 1.0, 4.0, f32::NAN, f32::INFINITY]);
+    let special = std::hint::black_box([
+        -4.0_f32,
+        -1.0,
+        -0.0,
+        0.0,
+        0.25,
+        1.0,
+        4.0,
+        f32::NAN,
+        f32::INFINITY,
+    ]);
     let mut special_out = [f32::NAN; 9];
     let special_cmd = CpuCommand {
-        a: special.as_ptr(), b: core::ptr::null(), out: special_out.as_mut_ptr(),
-        len: special_out.len(), m: 0, k: 0, n: 0,
-        transpose_lhs: false, transpose_rhs: false,
-        lhs_vector: false, rhs_vector: false,
-        scalar0: 0.0, scalar1: 0.0, arbitrary_axes: None, sort_scratch: ptr::null_mut(), entry: rsqrt_nonpositive_to_zero_f32,
+        a: special.as_ptr(),
+        b: core::ptr::null(),
+        out: special_out.as_mut_ptr(),
+        len: special_out.len(),
+        m: 0,
+        k: 0,
+        n: 0,
+        transpose_lhs: false,
+        transpose_rhs: false,
+        lhs_vector: false,
+        rhs_vector: false,
+        scalar0: 0.0,
+        scalar1: 0.0,
+        arbitrary_axes: None,
+        sort_scratch: ptr::null_mut(),
+        entry: rsqrt_nonpositive_to_zero_f32,
     };
-    unsafe { rsqrt_nonpositive_to_zero_f32(&special_cmd); }
-    for i in 0..=3 {
-        if special_out[i].to_bits() != 0.0_f32.to_bits() { return false; }
+    unsafe {
+        rsqrt_nonpositive_to_zero_f32(&special_cmd);
     }
-    if special_out[4] != 2.0 || special_out[5] != 1.0 || special_out[6] != 0.5
-        || !special_out[7].is_nan() || special_out[8] != 0.0
+    for value in &special_out[..4] {
+        if value.to_bits() != 0.0_f32.to_bits() {
+            return false;
+        }
+    }
+    if special_out[4] != 2.0
+        || special_out[5] != 1.0
+        || special_out[6] != 0.5
+        || !special_out[7].is_nan()
+        || special_out[8] != 0.0
     {
         return false;
     }
-    unsafe { log_nonpositive_to_neg87_f32(&special_cmd); }
-    for i in 0..=3 {
-        if special_out[i].to_bits() != (-87.0_f32).to_bits() { return false; }
+    unsafe {
+        log_nonpositive_to_neg87_f32(&special_cmd);
+    }
+    for value in &special_out[..4] {
+        if value.to_bits() != (-87.0_f32).to_bits() {
+            return false;
+        }
     }
     if special_out[5].to_bits() != 0.0_f32.to_bits() || !special_out[7].is_nan() {
         return false;
     }
-    unsafe { sigmoid_f32(&special_cmd); }
+    unsafe {
+        sigmoid_f32(&special_cmd);
+    }
     if special_out[3].to_bits() != 0.5_f32.to_bits()
         || special_out[8].to_bits() != 1.0_f32.to_bits()
         || !special_out[7].is_nan()
-    { return false; }
-    unsafe { relu_f32(&special_cmd); }
+    {
+        return false;
+    }
+    unsafe {
+        relu_f32(&special_cmd);
+    }
     if special_out[0].to_bits() != 0.0_f32.to_bits()
         || special_out[2].to_bits() != 0.0_f32.to_bits()
         || special_out[6].to_bits() != 4.0_f32.to_bits()
         || !special_out[7].is_nan()
-    { return false; }
-    unsafe { round_f32(&special_cmd); }
+    {
+        return false;
+    }
+    unsafe {
+        round_f32(&special_cmd);
+    }
     if special_out[2].to_bits() != (-0.0_f32).to_bits()
         || special_out[4].to_bits() != 0.0_f32.to_bits()
-        || special_out[6] != 4.0 || !special_out[7].is_nan()
-    { return false; }
-    unsafe { gelu_tanh_approx_f32(&special_cmd); }
+        || special_out[6] != 4.0
+        || !special_out[7].is_nan()
+    {
+        return false;
+    }
+    unsafe {
+        gelu_tanh_approx_f32(&special_cmd);
+    }
     if special_out[2].to_bits() != (-0.0_f32).to_bits()
         || special_out[3].to_bits() != 0.0_f32.to_bits()
-        || special_out[8] != f32::INFINITY || !special_out[7].is_nan()
-    { return false; }
+        || special_out[8] != f32::INFINITY
+        || !special_out[7].is_nan()
+    {
+        return false;
+    }
     // These two explicit erf-based operations must also work in the actual
     // linked Release image. Compare against independently rounded f32 values,
     // and never mistake the tanh-GELU approximation for erf-GELU.
-    unsafe { erf_f32(&special_cmd); }
+    unsafe {
+        erf_f32(&special_cmd);
+    }
     if (special_out[1] + 0.842_700_8_f32).abs() > 3.0e-7
         || special_out[2].to_bits() != (-0.0_f32).to_bits()
         || special_out[3].to_bits() != 0.0_f32.to_bits()
         || (special_out[5] - 0.842_700_8_f32).abs() > 3.0e-7
-        || special_out[8] != 1.0 || !special_out[7].is_nan()
-    { return false; }
-    unsafe { gelu_erf_f32(&special_cmd); }
+        || special_out[8] != 1.0
+        || !special_out[7].is_nan()
+    {
+        return false;
+    }
+    unsafe {
+        gelu_erf_f32(&special_cmd);
+    }
     if (special_out[0] + 0.000_126_684_97_f32).abs() > 1.0e-8
         || special_out[2].to_bits() != (-0.0_f32).to_bits()
         || special_out[3].to_bits() != 0.0_f32.to_bits()
         || (special_out[5] - 0.841_344_8_f32).abs() > 3.0e-7
-        || special_out[8] != f32::INFINITY || !special_out[7].is_nan()
-    { return false; }
+        || special_out[8] != f32::INFINITY
+        || !special_out[7].is_nan()
+    {
+        return false;
+    }
     let zeros = std::hint::black_box([0.0_f32, -0.0]);
     let mut minmax = [f32::NAN];
     let minmax_cmd = CpuCommand {
-        a: zeros.as_ptr(), b: ptr::null(), out: minmax.as_mut_ptr(),
-        len: 1, m: 0, k: zeros.len(), n: 0,
-        transpose_lhs: false, transpose_rhs: false,
-        lhs_vector: false, rhs_vector: false,
-        scalar0: 0.0, scalar1: 0.0, arbitrary_axes: None, sort_scratch: ptr::null_mut(), entry: minimum_all_f32,
+        a: zeros.as_ptr(),
+        b: ptr::null(),
+        out: minmax.as_mut_ptr(),
+        len: 1,
+        m: 0,
+        k: zeros.len(),
+        n: 0,
+        transpose_lhs: false,
+        transpose_rhs: false,
+        lhs_vector: false,
+        rhs_vector: false,
+        scalar0: 0.0,
+        scalar1: 0.0,
+        arbitrary_axes: None,
+        sort_scratch: ptr::null_mut(),
+        entry: minimum_all_f32,
     };
-    unsafe { minimum_all_f32(&minmax_cmd); }
-    if minmax[0].to_bits() != (-0.0_f32).to_bits() { return false; }
-    unsafe { maximum_all_f32(&minmax_cmd); }
-    if minmax[0].to_bits() != 0.0_f32.to_bits() { return false; }
+    unsafe {
+        minimum_all_f32(&minmax_cmd);
+    }
+    if minmax[0].to_bits() != (-0.0_f32).to_bits() {
+        return false;
+    }
+    unsafe {
+        maximum_all_f32(&minmax_cmd);
+    }
+    if minmax[0].to_bits() != 0.0_f32.to_bits() {
+        return false;
+    }
 
     // Exercise actual release-mode scalar immediates and a scaled norm.
     // No new startup check is inserted into the normal hot replay path.
     let mut scalar = special_cmd;
     scalar.scalar0 = 1.5;
-    unsafe { scalar_power_three_halves_f32(&scalar); }
-    if special_out[0] != 0.0 || special_out[6] != 8.0
-        || special_out[7] != 0.0 || special_out[8] != f32::INFINITY
-    { return false; }
+    unsafe {
+        scalar_power_three_halves_f32(&scalar);
+    }
+    if special_out[0] != 0.0
+        || special_out[6] != 8.0
+        || special_out[7] != 0.0
+        || special_out[8] != f32::INFINITY
+    {
+        return false;
+    }
     scalar.scalar0 = -1.0;
     scalar.scalar1 = 2.0;
-    unsafe { scalar_clamp_f32(&scalar); }
-    if special_out[0] != -1.0 || special_out[6] != 2.0
-        || !special_out[7].is_nan() || special_out[8] != 2.0
-    { return false; }
+    unsafe {
+        scalar_clamp_f32(&scalar);
+    }
+    if special_out[0] != -1.0
+        || special_out[6] != 2.0
+        || !special_out[7].is_nan()
+        || special_out[8] != 2.0
+    {
+        return false;
+    }
     let norm_source = std::hint::black_box([3.0_f32, 4.0]);
     let mut norm_result = [f32::NAN];
     let norm = CpuCommand {
-        a: norm_source.as_ptr(), b: ptr::null(), out: norm_result.as_mut_ptr(),
-        len: 1, m: 0, k: norm_source.len(), n: 0,
-        transpose_lhs: false, transpose_rhs: false,
-        lhs_vector: false, rhs_vector: false,
-        scalar0: 0.0, scalar1: 0.0, arbitrary_axes: None, sort_scratch: ptr::null_mut(), entry: l2_norm_all_f32,
+        a: norm_source.as_ptr(),
+        b: ptr::null(),
+        out: norm_result.as_mut_ptr(),
+        len: 1,
+        m: 0,
+        k: norm_source.len(),
+        n: 0,
+        transpose_lhs: false,
+        transpose_rhs: false,
+        lhs_vector: false,
+        rhs_vector: false,
+        scalar0: 0.0,
+        scalar1: 0.0,
+        arbitrary_axes: None,
+        sort_scratch: ptr::null_mut(),
+        entry: l2_norm_all_f32,
     };
-    unsafe { mean_all_f32(&norm); }
-    if norm_result[0] != 3.5 { return false; }
+    unsafe {
+        mean_all_f32(&norm);
+    }
+    if norm_result[0] != 3.5 {
+        return false;
+    }
     // Overflow in an intermediate FP32 sum must not turn a finite mean
     // into infinity in the linked Release binary.
     let large_mean_input = std::hint::black_box([f32::MAX, f32::MAX]);
     let mut large_mean_cmd = norm;
     large_mean_cmd.a = large_mean_input.as_ptr();
-    unsafe { mean_all_f32(&large_mean_cmd); }
-    if norm_result[0].to_bits() != f32::MAX.to_bits() { return false; }
-    unsafe { l1_norm_all_f32(&norm); }
-    if norm_result[0] != 7.0 { return false; }
-    unsafe { l2_norm_all_f32(&norm); }
-    if norm_result[0] != 5.0 { return false; }
-    unsafe { linf_norm_all_f32(&norm); }
-    if norm_result[0] != 4.0 { return false; }
-    unsafe { variance_population_all_f32(&norm); }
-    if norm_result[0] != 0.25 { return false; }
-    unsafe { stddev_population_all_f32(&norm); }
-    if norm_result[0] != 0.5 { return false; }
-    unsafe { logsumexp_all_f32(&norm); }
+    unsafe {
+        mean_all_f32(&large_mean_cmd);
+    }
+    if norm_result[0].to_bits() != f32::MAX.to_bits() {
+        return false;
+    }
+    unsafe {
+        l1_norm_all_f32(&norm);
+    }
+    if norm_result[0] != 7.0 {
+        return false;
+    }
+    unsafe {
+        l2_norm_all_f32(&norm);
+    }
+    if norm_result[0] != 5.0 {
+        return false;
+    }
+    unsafe {
+        linf_norm_all_f32(&norm);
+    }
+    if norm_result[0] != 4.0 {
+        return false;
+    }
+    unsafe {
+        variance_population_all_f32(&norm);
+    }
+    if norm_result[0] != 0.25 {
+        return false;
+    }
+    unsafe {
+        stddev_population_all_f32(&norm);
+    }
+    if norm_result[0] != 0.5 {
+        return false;
+    }
+    unsafe {
+        logsumexp_all_f32(&norm);
+    }
     if (norm_result[0] - (4.0 + (1.0 + (-1.0f32).exp()).ln())).abs() > 1.0e-6 {
         return false;
     }
@@ -975,90 +1310,178 @@ pub fn builtin_cpu_release_kernel_selfcheck() -> bool {
     let mut short_cmd = norm;
     short_cmd.a = short_reduction.as_ptr();
     short_cmd.k = short_reduction.len();
-    unsafe { sum_all_f32(&short_cmd); }
-    if norm_result[0].to_bits() != 1.0f32.to_bits() { return false; }
-    unsafe { mean_all_f32(&short_cmd); }
-    if norm_result[0].to_bits() != ((1.0f64 / 3.0) as f32).to_bits() { return false; }
+    unsafe {
+        sum_all_f32(&short_cmd);
+    }
+    if norm_result[0].to_bits() != 1.0f32.to_bits() {
+        return false;
+    }
+    unsafe {
+        mean_all_f32(&short_cmd);
+    }
+    if norm_result[0].to_bits() != ((1.0f64 / 3.0) as f32).to_bits() {
+        return false;
+    }
     let short_l1 = std::hint::black_box([16_777_216.0f32, 1.0, 1.0]);
     short_cmd.a = short_l1.as_ptr();
-    unsafe { l1_norm_all_f32(&short_cmd); }
-    if norm_result[0].to_bits() != 16_777_218.0f32.to_bits() { return false; }
+    unsafe {
+        l1_norm_all_f32(&short_cmd);
+    }
+    if norm_result[0].to_bits() != 16_777_218.0f32.to_bits() {
+        return false;
+    }
     let rescaled_product = std::hint::black_box([1.0e20f32, 1.0e20, 1.0e-40]);
     short_cmd.a = rescaled_product.as_ptr();
-    unsafe { product_all_f32(&short_cmd); }
+    unsafe {
+        product_all_f32(&short_cmd);
+    }
     let expected_product = (f64::from(rescaled_product[0])
-        * f64::from(rescaled_product[1]) * f64::from(rescaled_product[2])) as f32;
-    if norm_result[0].to_bits() != expected_product.to_bits() { return false; }
+        * f64::from(rescaled_product[1])
+        * f64::from(rescaled_product[2])) as f32;
+    if norm_result[0].to_bits() != expected_product.to_bits() {
+        return false;
+    }
 
     // Release image smoke checks for two new rank/dtype-preserving AOT
     // families. Neither check changes the input data nor hot replay path.
     let axis_source = std::hint::black_box([1000.0f32, 1001.0, 1.0, 2.0]);
     let mut axis_output = [f32::NAN; 4];
     let axis_cmd = CpuCommand {
-        a: axis_source.as_ptr(), b: ptr::null(), out: axis_output.as_mut_ptr(),
-        len: 4, m: 2, k: 2, n: 1,
-        transpose_lhs: false, transpose_rhs: false,
-        lhs_vector: false, rhs_vector: false,
-        scalar0: 0.0, scalar1: 0.0, arbitrary_axes: None, sort_scratch: ptr::null_mut(), entry: softmax_axis_f32,
+        a: axis_source.as_ptr(),
+        b: ptr::null(),
+        out: axis_output.as_mut_ptr(),
+        len: 4,
+        m: 2,
+        k: 2,
+        n: 1,
+        transpose_lhs: false,
+        transpose_rhs: false,
+        lhs_vector: false,
+        rhs_vector: false,
+        scalar0: 0.0,
+        scalar1: 0.0,
+        arbitrary_axes: None,
+        sort_scratch: ptr::null_mut(),
+        entry: softmax_axis_f32,
     };
-    unsafe { softmax_axis_f32(&axis_cmd); }
+    unsafe {
+        softmax_axis_f32(&axis_cmd);
+    }
     if (axis_output[0] - 0.26894143).abs() > 1.0e-6
         || (axis_output[1] - 0.7310586).abs() > 1.0e-6
         || (axis_output[2] - 0.26894143).abs() > 1.0e-6
         || (axis_output[3] - 0.7310586).abs() > 1.0e-6
-    { return false; }
-    unsafe { log_softmax_axis_f32(&axis_cmd); }
-    if (axis_output[0] + 1.3132616).abs() > 2.0e-6
-        || (axis_output[1] + 0.3132617).abs() > 2.0e-6
-    { return false; }
+    {
+        return false;
+    }
+    unsafe {
+        log_softmax_axis_f32(&axis_cmd);
+    }
+    if (axis_output[0] + 1.3132616).abs() > 2.0e-6 || (axis_output[1] + 0.3132617).abs() > 2.0e-6 {
+        return false;
+    }
     let scan_source = std::hint::black_box([1.0_f32, 2.0, 3.0, 4.0]);
     let mut scan_output = [f32::NAN; 4];
     let scan_cmd = CpuCommand {
-        a: scan_source.as_ptr(), b: ptr::null(), out: scan_output.as_mut_ptr(),
-        len: 4, m: 1, k: 4, n: 1,
-        transpose_lhs: false, transpose_rhs: false,
-        lhs_vector: false, rhs_vector: false,
-        scalar0: 0.0, scalar1: 0.0, arbitrary_axes: None, sort_scratch: ptr::null_mut(), entry: scan_axis_f32::<0, true>,
+        a: scan_source.as_ptr(),
+        b: ptr::null(),
+        out: scan_output.as_mut_ptr(),
+        len: 4,
+        m: 1,
+        k: 4,
+        n: 1,
+        transpose_lhs: false,
+        transpose_rhs: false,
+        lhs_vector: false,
+        rhs_vector: false,
+        scalar0: 0.0,
+        scalar1: 0.0,
+        arbitrary_axes: None,
+        sort_scratch: ptr::null_mut(),
+        entry: scan_axis_f32::<0, true>,
     };
-    unsafe { scan_axis_f32::<0, true>(&scan_cmd); }
-    if scan_output != [1.0, 3.0, 6.0, 10.0] { return false; }
-    unsafe { scan_axis_f32::<0, false>(&scan_cmd); }
-    if scan_output != [0.0, 1.0, 3.0, 6.0] { return false; }
+    unsafe {
+        scan_axis_f32::<0, true>(&scan_cmd);
+    }
+    if scan_output != [1.0, 3.0, 6.0, 10.0] {
+        return false;
+    }
+    unsafe {
+        scan_axis_f32::<0, false>(&scan_cmd);
+    }
+    if scan_output != [0.0, 1.0, 3.0, 6.0] {
+        return false;
+    }
     let norm_source = std::hint::black_box([3.0_f32, 4.0]);
     let mut norm_output = [f32::NAN; 2];
     let norm_cmd = CpuCommand {
-        a: norm_source.as_ptr(), b: ptr::null(), out: norm_output.as_mut_ptr(),
-        len: 2, m: 1, k: 2, n: 1,
-        transpose_lhs: false, transpose_rhs: false,
-        lhs_vector: false, rhs_vector: false,
-        scalar0: 0.0, scalar1: 0.0, arbitrary_axes: None, sort_scratch: ptr::null_mut(), entry: normalize_suffix_f32::<2>,
+        a: norm_source.as_ptr(),
+        b: ptr::null(),
+        out: norm_output.as_mut_ptr(),
+        len: 2,
+        m: 1,
+        k: 2,
+        n: 1,
+        transpose_lhs: false,
+        transpose_rhs: false,
+        lhs_vector: false,
+        rhs_vector: false,
+        scalar0: 0.0,
+        scalar1: 0.0,
+        arbitrary_axes: None,
+        sort_scratch: ptr::null_mut(),
+        entry: normalize_suffix_f32::<2>,
     };
-    unsafe { normalize_suffix_f32::<2>(&norm_cmd); }
-    if norm_output[0].to_bits() != 0.6f32.to_bits()
-        || norm_output[1].to_bits() != 0.8f32.to_bits()
-    { return false; }
+    unsafe {
+        normalize_suffix_f32::<2>(&norm_cmd);
+    }
+    if norm_output[0].to_bits() != 0.6f32.to_bits() || norm_output[1].to_bits() != 0.8f32.to_bits()
+    {
+        return false;
+    }
     // Release-linked nonconsecutive-axis paths are separate artifacts; check
     // their actual copied FP32 bits and numerical result, not only the BIND
     // branch or the unqualified unit-test harness.
-    let perm_source = std::hint::black_box([1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0,
-        7.0, 8.0, 9.0, 10.0, 11.0, 12.0]);
+    let perm_source = std::hint::black_box([
+        1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0,
+    ]);
     let mut perm_output = [f32::NAN; 12];
     let perm_axes = ArbitraryAxes {
-        dims: [2, 3, 2, 1, 1, 1, 1, 1], rank: 3, mask: 0b101,
+        dims: [2, 3, 2, 1, 1, 1, 1, 1],
+        rank: 3,
+        mask: 0b101,
     };
     let perm_cmd = CpuCommand {
-        a: perm_source.as_ptr(), b: ptr::null(), out: perm_output.as_mut_ptr(),
-        len: 12, m: 3, k: 4, n: 1,
-        transpose_lhs: false, transpose_rhs: false,
-        lhs_vector: false, rhs_vector: false,
-        scalar0: 1e-5, scalar1: 0.0, arbitrary_axes: Some(perm_axes),
+        a: perm_source.as_ptr(),
+        b: ptr::null(),
+        out: perm_output.as_mut_ptr(),
+        len: 12,
+        m: 3,
+        k: 4,
+        n: 1,
+        transpose_lhs: false,
+        transpose_rhs: false,
+        lhs_vector: false,
+        rhs_vector: false,
+        scalar0: 1e-5,
+        scalar1: 0.0,
+        arbitrary_axes: Some(perm_axes),
         sort_scratch: ptr::null_mut(),
         entry: flip_arbitrary_axes_f32,
     };
-    unsafe { flip_arbitrary_axes_f32(&perm_cmd); }
-    if perm_output != [8.0, 7.0, 10.0, 9.0, 12.0, 11.0,
-        2.0, 1.0, 4.0, 3.0, 6.0, 5.0] { return false; }
-    unsafe { normalize_arbitrary_axes_f32::<2>(&perm_cmd); }
+    unsafe {
+        flip_arbitrary_axes_f32(&perm_cmd);
+    }
+    if perm_output
+        != [
+            8.0, 7.0, 10.0, 9.0, 12.0, 11.0, 2.0, 1.0, 4.0, 3.0, 6.0, 5.0,
+        ]
+    {
+        return false;
+    }
+    unsafe {
+        normalize_arbitrary_axes_f32::<2>(&perm_cmd);
+    }
     // The independently computed L2 norm over axes [0,2] at j=0 is
     // sqrt(1^2 + 2^2 + 7^2 + 8^2 + epsilon) = sqrt(118+epsilon).
     let denominator = (118.0f64 + f64::from(perm_cmd.scalar0)).sqrt();
@@ -1066,16 +1489,25 @@ pub fn builtin_cpu_release_kernel_selfcheck() -> bool {
         || (f64::from(perm_output[1]) - 2.0 / denominator).abs() > 1.0e-6
         || (f64::from(perm_output[6]) - 7.0 / denominator).abs() > 1.0e-6
         || (f64::from(perm_output[7]) - 8.0 / denominator).abs() > 1.0e-6
-    { return false; }
+    {
+        return false;
+    }
     // Linked release provider: stable value sorting must preserve both
     // distinct NaN payloads and +/-0 input order, with the allocation
     // already prepared by BIND (stack-owned only in this smoke check).
     let sorted_source = std::hint::black_box([
-        f32::from_bits(0x7fc0_0011), -0.0, 0.0,
-        f32::from_bits(0x7fc0_0022), 1.0, -1.0,
+        f32::from_bits(0x7fc0_0011),
+        -0.0,
+        0.0,
+        f32::from_bits(0x7fc0_0022),
+        1.0,
+        -1.0,
     ]);
     let mut sorted_output = [0.0_f32; 6];
-    let mut sort_buffer = [SortRecord { bits: 0, ordinal: 0 }; 6];
+    let mut sort_buffer = [SortRecord {
+        bits: 0,
+        ordinal: 0,
+    }; 6];
     let mut sort_cmd = perm_cmd;
     sort_cmd.a = sorted_source.as_ptr();
     sort_cmd.out = sorted_output.as_mut_ptr();
@@ -1084,10 +1516,21 @@ pub fn builtin_cpu_release_kernel_selfcheck() -> bool {
     sort_cmd.k = 6;
     sort_cmd.n = 1;
     sort_cmd.sort_scratch = sort_buffer.as_mut_ptr();
-    unsafe { sort_values_axis_f32::<false, false>(&sort_cmd); }
-    if sorted_output.map(f32::to_bits) != [(-1.0_f32).to_bits(),
-        (-0.0_f32).to_bits(), 0.0_f32.to_bits(), 1.0_f32.to_bits(),
-        0x7fc0_0011, 0x7fc0_0022] { return false; }
+    unsafe {
+        sort_values_axis_f32::<false, false>(&sort_cmd);
+    }
+    if sorted_output.map(f32::to_bits)
+        != [
+            (-1.0_f32).to_bits(),
+            (-0.0_f32).to_bits(),
+            0.0_f32.to_bits(),
+            1.0_f32.to_bits(),
+            0x7fc0_0011,
+            0x7fc0_0022,
+        ]
+    {
+        return false;
+    }
     true
 }
 
@@ -1137,18 +1580,23 @@ fn builtin_codegen_matches_release(codegen: RustCodegenPlan, avx2: bool) -> bool
 fn physical_io_is_disjoint(a: Option<Span>, b: Option<Span>, output: Span) -> bool {
     a.is_none_or(|lhs| lhs.physical.disjoint_from(output.physical))
         && b.is_none_or(|rhs| rhs.physical.disjoint_from(output.physical))
-        && a.zip(b).is_none_or(|(lhs, rhs)| lhs.physical.disjoint_from(rhs.physical))
+        && a.zip(b)
+            .is_none_or(|(lhs, rhs)| lhs.physical.disjoint_from(rhs.physical))
 }
 
 /// Resolve any contiguous rank-1..8 axis to the immutable (outer, axis, inner)
 /// iteration geometry. A zero-size non-axis dimension is allowed and makes
 /// the *entire* replay a no-op. Softmax rejects a zero-size selected axis;
 /// scans also admit it as a no-op. No shape changes or dtype conversions.
-fn contiguous_axis_geometry(shape: StaticShape, axis: usize, allow_empty_axis: bool)
-    -> Result<(usize, usize, usize), CpuNativeError>
-{
+fn contiguous_axis_geometry(
+    shape: StaticShape,
+    axis: usize,
+    allow_empty_axis: bool,
+) -> Result<(usize, usize, usize), CpuNativeError> {
     let rank = shape.rank();
-    if axis >= rank { return Err(CpuNativeError::InvalidShape); }
+    if axis >= rank {
+        return Err(CpuNativeError::InvalidShape);
+    }
     let axis_length = shape.dim(axis).ok_or(CpuNativeError::InvalidShape)?;
     if axis_length == 0 && !allow_empty_axis {
         return Err(CpuNativeError::InvalidShape);
@@ -1165,11 +1613,15 @@ fn contiguous_axis_geometry(shape: StaticShape, axis: usize, allow_empty_axis: b
     for dimension in 0..rank {
         let extent = shape.dim(dimension).ok_or(CpuNativeError::InvalidShape)?;
         if dimension < axis {
-            outer = outer.checked_mul(extent).ok_or(CpuNativeError::InvalidShape)?;
+            outer = outer
+                .checked_mul(extent)
+                .ok_or(CpuNativeError::InvalidShape)?;
         } else if dimension == axis {
             axis_length = extent;
         } else {
-            inner = inner.checked_mul(extent).ok_or(CpuNativeError::InvalidShape)?;
+            inner = inner
+                .checked_mul(extent)
+                .ok_or(CpuNativeError::InvalidShape)?;
         }
     }
     if axis_length == 0 && !allow_empty_axis {
@@ -1177,7 +1629,8 @@ fn contiguous_axis_geometry(shape: StaticShape, axis: usize, allow_empty_axis: b
     }
     // Strictly prove every replayed pointer displacement is in the bound span;
     // never infer it from axis indices alone or rely on unchecked wrapping.
-    let elements = outer.checked_mul(axis_length)
+    let elements = outer
+        .checked_mul(axis_length)
         .and_then(|value| value.checked_mul(inner))
         .ok_or(CpuNativeError::InvalidShape)?;
     if elements != shape.element_count().ok_or(CpuNativeError::InvalidShape)? {
@@ -1191,16 +1644,22 @@ fn contiguous_axis_geometry(shape: StaticShape, axis: usize, allow_empty_axis: b
 /// axes are neutral). This supports single and multi-axis flips using the
 /// SAME allocation-free, memcpy-based native entry. Nonconsecutive, nontrivial
 /// axes require a distinct mapping kernel; never approximate their effect.
-fn flip_block_geometry(shape: StaticShape, axes: AxisList)
-    -> Result<(usize, usize, usize), CpuNativeError>
-{
+fn flip_block_geometry(
+    shape: StaticShape,
+    axes: AxisList,
+) -> Result<(usize, usize, usize), CpuNativeError> {
     let rank = shape.rank();
-    axes.validate_for_rank(rank).map_err(CpuNativeError::InvalidPlan)?;
-    if axes.len == 0 { return Err(CpuNativeError::InvalidShape); }
+    axes.validate_for_rank(rank)
+        .map_err(CpuNativeError::InvalidPlan)?;
+    if axes.len == 0 {
+        return Err(CpuNativeError::InvalidShape);
+    }
     let elements = shape.element_count().ok_or(CpuNativeError::InvalidShape)?;
     // No bytes are accessed in an empty tensor: huge nonzero extents may be
     // safely ignored, but the complete axis selection must still be legal.
-    if elements == 0 { return Ok((0, 0, 0)); }
+    if elements == 0 {
+        return Ok((0, 0, 0));
+    }
     let mut first = rank;
     let mut last = 0usize;
     let mut flipped = [false; 8];
@@ -1219,20 +1678,30 @@ fn flip_block_geometry(shape: StaticShape, axes: AxisList)
     let mut outer = 1usize;
     let mut block = 1usize;
     let mut inner = 1usize;
-    for axis in 0..rank {
+    for (axis, &is_flipped) in flipped[..rank].iter().enumerate() {
         let extent = shape.dim(axis).ok_or(CpuNativeError::InvalidShape)?;
         if axis >= first && axis <= last {
-            if extent > 1 && !flipped[axis] {
+            if extent > 1 && !is_flipped {
                 return Err(CpuNativeError::UnsupportedOperation);
             }
-            block = block.checked_mul(extent).ok_or(CpuNativeError::InvalidShape)?;
+            block = block
+                .checked_mul(extent)
+                .ok_or(CpuNativeError::InvalidShape)?;
         } else if axis < first {
-            outer = outer.checked_mul(extent).ok_or(CpuNativeError::InvalidShape)?;
+            outer = outer
+                .checked_mul(extent)
+                .ok_or(CpuNativeError::InvalidShape)?;
         } else {
-            inner = inner.checked_mul(extent).ok_or(CpuNativeError::InvalidShape)?;
+            inner = inner
+                .checked_mul(extent)
+                .ok_or(CpuNativeError::InvalidShape)?;
         }
     }
-    if outer.checked_mul(block).and_then(|value| value.checked_mul(inner)) != Some(elements) {
+    if outer
+        .checked_mul(block)
+        .and_then(|value| value.checked_mul(inner))
+        != Some(elements)
+    {
         return Err(CpuNativeError::InvalidShape);
     }
     Ok((outer, block, inner))
@@ -1240,25 +1709,32 @@ fn flip_block_geometry(shape: StaticShape, axes: AxisList)
 
 /// Record the exact contiguous row-major logical shape and axis mask once.
 /// `element_count` is already checked for every native IO span at BIND.
-fn arbitrary_axes_geometry(shape: StaticShape, mask: u8)
-    -> Result<ArbitraryAxes, CpuNativeError>
-{
+fn arbitrary_axes_geometry(shape: StaticShape, mask: u8) -> Result<ArbitraryAxes, CpuNativeError> {
     let rank = shape.rank();
-    AxisMask(mask).validate_for_rank(rank).map_err(CpuNativeError::InvalidPlan)?;
-    if rank == 0 || mask == 0 { return Err(CpuNativeError::InvalidShape); }
+    AxisMask(mask)
+        .validate_for_rank(rank)
+        .map_err(CpuNativeError::InvalidPlan)?;
+    if rank == 0 || mask == 0 {
+        return Err(CpuNativeError::InvalidShape);
+    }
     shape.element_count().ok_or(CpuNativeError::InvalidShape)?;
     let mut dims = [1usize; 8];
     for (axis, dim) in dims.iter_mut().enumerate().take(rank) {
         *dim = shape.dim(axis).ok_or(CpuNativeError::InvalidShape)?;
     }
-    Ok(ArbitraryAxes { dims, rank: rank as u8, mask })
+    Ok(ArbitraryAxes {
+        dims,
+        rank: rank as u8,
+        mask,
+    })
 }
 
 /// Generic normalized axes include every explicitly selected dimension;
 /// none may have zero extent, even if some other dimension is empty.
-fn normalized_arbitrary_geometry(shape: StaticShape, axes: AxisMask)
-    -> Result<(usize, usize, ArbitraryAxes), CpuNativeError>
-{
+fn normalized_arbitrary_geometry(
+    shape: StaticShape,
+    axes: AxisMask,
+) -> Result<(usize, usize, ArbitraryAxes), CpuNativeError> {
     let g = arbitrary_axes_geometry(shape, axes.0)?;
     for axis in 0..usize::from(g.rank) {
         if (g.mask & (1_u8 << axis)) != 0 && g.dims[axis] == 0 {
@@ -1266,35 +1742,53 @@ fn normalized_arbitrary_geometry(shape: StaticShape, axes: AxisMask)
         }
     }
     let numel = shape.element_count().ok_or(CpuNativeError::InvalidShape)?;
-    if numel == 0 { return Ok((0, 0, g)); }
+    if numel == 0 {
+        return Ok((0, 0, g));
+    }
     let (mut groups, mut count) = (1usize, 1usize);
     for axis in 0..usize::from(g.rank) {
         if (g.mask & (1_u8 << axis)) != 0 {
-            count = count.checked_mul(g.dims[axis]).ok_or(CpuNativeError::InvalidShape)?;
+            count = count
+                .checked_mul(g.dims[axis])
+                .ok_or(CpuNativeError::InvalidShape)?;
         } else {
-            groups = groups.checked_mul(g.dims[axis]).ok_or(CpuNativeError::InvalidShape)?;
+            groups = groups
+                .checked_mul(g.dims[axis])
+                .ok_or(CpuNativeError::InvalidShape)?;
         }
     }
-    if groups.checked_mul(count) != Some(numel) { return Err(CpuNativeError::InvalidShape); }
+    if groups.checked_mul(count) != Some(numel) {
+        return Err(CpuNativeError::InvalidShape);
+    }
     Ok((groups, count, g))
 }
 
 /// A compact rank-preserving normalization kernel handles only a trailing
 /// contiguous set of axes. Other axis subsets must bind a distinct, verified
 /// provider instead of running with incorrect indexing or shape coercion.
-fn normalized_suffix_geometry(shape: StaticShape, axes: AxisMask)
-    -> Result<(usize, usize), CpuNativeError>
-{
+fn normalized_suffix_geometry(
+    shape: StaticShape,
+    axes: AxisMask,
+) -> Result<(usize, usize), CpuNativeError> {
     let rank = shape.rank();
-    axes.validate_for_rank(rank).map_err(CpuNativeError::InvalidPlan)?;
-    if rank == 0 || axes.is_empty() { return Err(CpuNativeError::InvalidShape); }
+    axes.validate_for_rank(rank)
+        .map_err(CpuNativeError::InvalidPlan)?;
+    if rank == 0 || axes.is_empty() {
+        return Err(CpuNativeError::InvalidShape);
+    }
     let first = axes.0.trailing_zeros() as usize;
-    let valid_mask = if rank == 8 { u8::MAX } else { ((1u16 << rank) - 1) as u8 };
+    let valid_mask = if rank == 8 {
+        u8::MAX
+    } else {
+        ((1u16 << rank) - 1) as u8
+    };
     if axes.0 != (valid_mask & (u8::MAX << first)) {
         return Err(CpuNativeError::UnsupportedOperation);
     }
     for axis in first..rank {
-        if shape.dim(axis) == Some(0) { return Err(CpuNativeError::InvalidShape); }
+        if shape.dim(axis) == Some(0) {
+            return Err(CpuNativeError::InvalidShape);
+        }
     }
     if shape.element_count() == Some(0) {
         // Empty tensors can have huge other dimensions: do not overflow
@@ -1306,9 +1800,12 @@ fn normalized_suffix_geometry(shape: StaticShape, axes: AxisMask)
     for axis in 0..rank {
         let extent = shape.dim(axis).ok_or(CpuNativeError::InvalidShape)?;
         if axis < first {
-            groups = groups.checked_mul(extent).ok_or(CpuNativeError::InvalidShape)?;
+            groups = groups
+                .checked_mul(extent)
+                .ok_or(CpuNativeError::InvalidShape)?;
         } else {
-            normalized_count = normalized_count.checked_mul(extent)
+            normalized_count = normalized_count
+                .checked_mul(extent)
                 .ok_or(CpuNativeError::InvalidShape)?;
         }
     }
@@ -1324,7 +1821,9 @@ fn normalized_suffix_geometry(shape: StaticShape, axes: AxisMask)
 /// A singleton group or a channel axis immediately after batch has a truly
 /// contiguous physical group, so its existing suffix kernel is faster.
 fn group_normalization_geometry(
-    shape: StaticShape, channel_axis: u8, groups: u32,
+    shape: StaticShape,
+    channel_axis: u8,
+    groups: u32,
 ) -> Result<(usize, usize, ArbitraryAxes, bool), CpuNativeError> {
     let rank = shape.rank();
     let ch = usize::from(channel_axis);
@@ -1339,19 +1838,25 @@ fn group_normalization_geometry(
     }
     // Every normalized axis is nonempty. Only the batch axis may be empty.
     for axis in 1..rank {
-        if descriptor.dims[axis] == 0 { return Err(CpuNativeError::InvalidShape); }
+        if descriptor.dims[axis] == 0 {
+            return Err(CpuNativeError::InvalidShape);
+        }
     }
     let numel = shape.element_count().ok_or(CpuNativeError::InvalidShape)?;
     let use_direct = ch == 1 || count_groups == 1;
-    if numel == 0 { return Ok((0, 0, descriptor, use_direct)); }
+    if numel == 0 {
+        return Ok((0, 0, descriptor, use_direct));
+    }
     let mut group_elements = channels / count_groups;
     for axis in 1..rank {
         if axis != ch {
-            group_elements = group_elements.checked_mul(descriptor.dims[axis])
+            group_elements = group_elements
+                .checked_mul(descriptor.dims[axis])
                 .ok_or(CpuNativeError::InvalidShape)?;
         }
     }
-    let group_count = descriptor.dims[0].checked_mul(count_groups)
+    let group_count = descriptor.dims[0]
+        .checked_mul(count_groups)
         .ok_or(CpuNativeError::InvalidShape)?;
     if group_count.checked_mul(group_elements) != Some(numel) {
         return Err(CpuNativeError::InvalidShape);
@@ -1360,10 +1865,16 @@ fn group_normalization_geometry(
 }
 
 fn prepare_node(
-    plan: &FrozenExecutionPlan, node: &FrozenNode, kernel: &CpuKernelPlan,
-    bindings: &[StorageBinding<'_>], installed: CpuInstallation,
+    plan: &FrozenExecutionPlan,
+    node: &FrozenNode,
+    kernel: &CpuKernelPlan,
+    bindings: &[StorageBinding<'_>],
+    installed: CpuInstallation,
 ) -> Result<CpuCommand, CpuNativeError> {
-    if !matches!(kernel.math_mode, KernelMathMode::StrictFp32 | KernelMathMode::Exact) {
+    if !matches!(
+        kernel.math_mode,
+        KernelMathMode::StrictFp32 | KernelMathMode::Exact
+    ) {
         return Err(CpuNativeError::UnsupportedMathMode);
     }
     // The global frozen-plan validator requires precisely one logical worker
@@ -1401,7 +1912,9 @@ fn prepare_node(
     let features = kernel.required_features;
     let portable = features == FeatureMask(0);
     let avx2 = features == cpu_feature::AVX2;
-    if !portable && !avx2 { return Err(CpuNativeError::UnsupportedCpuFeature); }
+    if !portable && !avx2 {
+        return Err(CpuNativeError::UnsupportedCpuFeature);
+    }
     // The only vectorized built-in paths are AVX2 add/sub/mul/div and GEMM.
     // A scalar/copy plan must not claim to execute an AVX2-specific artifact.
     let required_simd_bytes: u16 = if avx2 { 32 } else { 0 };
@@ -1409,8 +1922,12 @@ fn prepare_node(
         return Err(CpuNativeError::UnsupportedArtifact);
     }
     if avx2 {
-        if installed.capabilities.hardware.cpu
-            .is_none_or(|cpu| !cpu.features.contains(cpu_feature::AVX2)) {
+        if installed
+            .capabilities
+            .hardware
+            .cpu
+            .is_none_or(|cpu| !cpu.features.contains(cpu_feature::AVX2))
+        {
             return Err(CpuNativeError::UnsupportedCpuFeature);
         }
         #[cfg(target_arch = "x86_64")]
@@ -1425,7 +1942,9 @@ fn prepare_node(
     }
     // validate_cpu_mapping requires Rust codegen metadata for this exact
     // artifact kind; a direct unsafe Backend call must not silently skip it.
-    let codegen = kernel.rust_codegen.ok_or(CpuNativeError::UnsupportedArtifact)?;
+    let codegen = kernel
+        .rust_codegen
+        .ok_or(CpuNativeError::UnsupportedArtifact)?;
     if !builtin_codegen_matches_release(codegen, avx2) {
         return Err(CpuNativeError::UnsupportedArtifact);
     }
@@ -1435,31 +1954,47 @@ fn prepare_node(
     // unchanged and deterministically. Indices sort is rejected below, as its
     // output dtype differs from this provider's f32-only ABI.
     if kernel.math_mode == KernelMathMode::Exact
-        && !matches!(node.operation,
-            Operation::Copy | Operation::Flip { .. } | Operation::Sort(_))
+        && !matches!(
+            node.operation,
+            Operation::Copy | Operation::Flip { .. } | Operation::Sort(_)
+        )
     {
         return Err(CpuNativeError::UnsupportedMathMode);
     }
     let inputs = kernel.io.input_storages;
     let outputs = kernel.io.output_storages;
-    if outputs.len() != 1 || inputs.len() > 2 { return Err(CpuNativeError::UnsupportedOperation); }
+    if outputs.len() != 1 || inputs.len() > 2 {
+        return Err(CpuNativeError::UnsupportedOperation);
+    }
     let output = resolve_span(plan, outputs[0], bindings)?;
-    if bindings.iter().find(|b| b.storage() == outputs[0])
+    if bindings
+        .iter()
+        .find(|b| b.storage() == outputs[0])
         .is_none_or(|binding| binding.access() != BindingAccess::ReadWrite)
         || plan.storages[outputs[0] as usize].access == StorageAccess::ReadOnly
     {
         return Err(CpuNativeError::MissingBinding);
     }
     for &input_id in inputs {
-        if plan.storages.get(input_id as usize)
-            .is_none_or(|storage| storage.id != input_id || storage.access == StorageAccess::WriteOnly) {
+        if plan.storages.get(input_id as usize).is_none_or(|storage| {
+            storage.id != input_id || storage.access == StorageAccess::WriteOnly
+        }) {
             return Err(CpuNativeError::MissingBinding);
         }
     }
-    let a = if let Some(&id) = inputs.first() { Some(resolve_span(plan, id, bindings)?) } else { None };
-    let b = if let Some(&id) = inputs.get(1) { Some(resolve_span(plan, id, bindings)?) } else { None };
+    let a = if let Some(&id) = inputs.first() {
+        Some(resolve_span(plan, id, bindings)?)
+    } else {
+        None
+    };
+    let b = if let Some(&id) = inputs.get(1) {
+        Some(resolve_span(plan, id, bindings)?)
+    } else {
+        None
+    };
     if a.is_some_and(|src| !src.disjoint_from(output))
-        || b.is_some_and(|src| !src.disjoint_from(output)) {
+        || b.is_some_and(|src| !src.disjoint_from(output))
+    {
         return Err(CpuNativeError::UnsafeAliasing);
     }
     // The AOT noalias promise covers every PHYSICAL IO storage range,
@@ -1474,7 +2009,7 @@ fn prepare_node(
         return Err(CpuNativeError::UnsupportedArtifact);
     }
     if [Some(output), a, b].iter().flatten().any(|span| {
-        span.len != 0 && alignment != 0 && (span.ptr as usize) % alignment != 0
+        span.len != 0 && alignment != 0 && !(span.ptr as usize).is_multiple_of(alignment)
     }) {
         return Err(CpuNativeError::UnsupportedLayout);
     }
@@ -1484,34 +2019,71 @@ fn prepare_node(
         b: b.map_or(ptr::null(), |span| span.ptr.cast_const()),
         out: output.ptr,
         len: output.len,
-        m: 0, k: 0, n: 0,
-        transpose_lhs: false, transpose_rhs: false,
-        lhs_vector: false, rhs_vector: false,
-        scalar0: 0.0, scalar1: 0.0, arbitrary_axes: None, sort_scratch: ptr::null_mut(), entry: copy_f32,
+        m: 0,
+        k: 0,
+        n: 0,
+        transpose_lhs: false,
+        transpose_rhs: false,
+        lhs_vector: false,
+        rhs_vector: false,
+        scalar0: 0.0,
+        scalar1: 0.0,
+        arbitrary_axes: None,
+        sort_scratch: ptr::null_mut(),
+        entry: copy_f32,
     };
     let (name, entry): (&str, unsafe fn(&CpuCommand)) = match node.operation {
-        Operation::Copy if inputs.len() == 1
-            && a.shape == output.shape
-            && kernel.family == KernelFamily::ContiguousCopy => (BUILTIN_COPY, copy_f32),
-        Operation::Elementwise { kind, arity: 2, broadcast_signature: 0 }
-            if inputs.len() == 2 && b.is_some_and(|second| second.shape == a.shape)
+        Operation::Copy
+            if inputs.len() == 1
                 && a.shape == output.shape
-                && matches!(kernel.family, KernelFamily::ContiguousElementwise | KernelFamily::Elementwise) => {
+                && kernel.family == KernelFamily::ContiguousCopy =>
+        {
+            (BUILTIN_COPY, copy_f32)
+        }
+        Operation::Elementwise {
+            kind,
+            arity: 2,
+            broadcast_signature: 0,
+        } if inputs.len() == 2
+            && b.is_some_and(|second| second.shape == a.shape)
+            && a.shape == output.shape
+            && matches!(
+                kernel.family,
+                KernelFamily::ContiguousElementwise | KernelFamily::Elementwise
+            ) =>
+        {
             match kind {
-                ElementwiseKind::Add => if avx2 {
-                    (BUILTIN_ADD_AVX2, add_entry_avx2())
-                } else { (BUILTIN_ADD, add_f32) },
-                ElementwiseKind::Subtract => if avx2 {
-                    (BUILTIN_SUB_AVX2, sub_entry_avx2())
-                } else { (BUILTIN_SUB, sub_f32) },
-                ElementwiseKind::Multiply => if avx2 {
-                    (BUILTIN_MUL_AVX2, mul_entry_avx2())
-                } else { (BUILTIN_MUL, mul_f32) },
-                ElementwiseKind::Divide => if avx2 {
-                    (BUILTIN_DIV_AVX2, div_entry_avx2())
-                } else { (BUILTIN_DIV, div_f32) },
-                ElementwiseKind::DivideZeroToZero if !avx2 =>
-                    (BUILTIN_DIV_ZERO_TO_ZERO, div_zero_to_zero_f32),
+                ElementwiseKind::Add => {
+                    if avx2 {
+                        (BUILTIN_ADD_AVX2, add_entry_avx2())
+                    } else {
+                        (BUILTIN_ADD, add_f32)
+                    }
+                }
+                ElementwiseKind::Subtract => {
+                    if avx2 {
+                        (BUILTIN_SUB_AVX2, sub_entry_avx2())
+                    } else {
+                        (BUILTIN_SUB, sub_f32)
+                    }
+                }
+                ElementwiseKind::Multiply => {
+                    if avx2 {
+                        (BUILTIN_MUL_AVX2, mul_entry_avx2())
+                    } else {
+                        (BUILTIN_MUL, mul_f32)
+                    }
+                }
+                ElementwiseKind::Divide => {
+                    if avx2 {
+                        (BUILTIN_DIV_AVX2, div_entry_avx2())
+                    } else {
+                        (BUILTIN_DIV, div_f32)
+                    }
+                }
+                ElementwiseKind::DivideZeroToZero if !avx2 => {
+                    (BUILTIN_DIV_ZERO_TO_ZERO, div_zero_to_zero_f32)
+                }
                 ElementwiseKind::Minimum if !avx2 => (BUILTIN_MIN, min_f32),
                 ElementwiseKind::Maximum if !avx2 => (BUILTIN_MAX, max_f32),
                 ElementwiseKind::Hypot if !avx2 => (BUILTIN_HYPOT, hypot_f32),
@@ -1519,31 +2091,48 @@ fn prepare_node(
                 _ => return Err(CpuNativeError::UnsupportedOperation),
             }
         }
-        Operation::Elementwise { kind, arity: 1, broadcast_signature: 0 }
-            if inputs.len() == 1 && a.shape == output.shape && !avx2
-                && matches!(kernel.family, KernelFamily::ContiguousElementwise | KernelFamily::Elementwise) => {
+        Operation::Elementwise {
+            kind,
+            arity: 1,
+            broadcast_signature: 0,
+        } if inputs.len() == 1
+            && a.shape == output.shape
+            && !avx2
+            && matches!(
+                kernel.family,
+                KernelFamily::ContiguousElementwise | KernelFamily::Elementwise
+            ) =>
+        {
             match kind {
                 ElementwiseKind::Negate => (BUILTIN_NEG, neg_f32),
                 ElementwiseKind::Absolute => (BUILTIN_ABS, abs_f32),
                 ElementwiseKind::Square => (BUILTIN_SQUARE, square_f32),
                 ElementwiseKind::Sqrt => (BUILTIN_SQRT, sqrt_f32),
-                ElementwiseKind::SqrtNonPositiveToZero =>
-                    (BUILTIN_SQRT_NONPOSITIVE_TO_ZERO, sqrt_nonpositive_to_zero_f32),
-                ElementwiseKind::Reciprocal =>
-                    (BUILTIN_RECIPROCAL, reciprocal_f32),
-                ElementwiseKind::ReciprocalZeroToZero =>
-                    (BUILTIN_RECIPROCAL_ZERO_TO_ZERO, reciprocal_zero_to_zero_f32),
+                ElementwiseKind::SqrtNonPositiveToZero => (
+                    BUILTIN_SQRT_NONPOSITIVE_TO_ZERO,
+                    sqrt_nonpositive_to_zero_f32,
+                ),
+                ElementwiseKind::Reciprocal => (BUILTIN_RECIPROCAL, reciprocal_f32),
+                ElementwiseKind::ReciprocalZeroToZero => {
+                    (BUILTIN_RECIPROCAL_ZERO_TO_ZERO, reciprocal_zero_to_zero_f32)
+                }
                 ElementwiseKind::Rsqrt => (BUILTIN_RSQRT, rsqrt_f32),
-                ElementwiseKind::RsqrtNonPositiveToZero =>
-                    (BUILTIN_RSQRT_NONPOSITIVE_TO_ZERO, rsqrt_nonpositive_to_zero_f32),
+                ElementwiseKind::RsqrtNonPositiveToZero => (
+                    BUILTIN_RSQRT_NONPOSITIVE_TO_ZERO,
+                    rsqrt_nonpositive_to_zero_f32,
+                ),
                 ElementwiseKind::Exp => (BUILTIN_EXP, exp_f32),
                 ElementwiseKind::Expm1 => (BUILTIN_EXPM1, expm1_f32),
                 ElementwiseKind::Log => (BUILTIN_LOG, log_f32),
-                ElementwiseKind::LogNonPositiveToNeg87 =>
-                    (BUILTIN_LOG_NONPOSITIVE_TO_NEG87, log_nonpositive_to_neg87_f32),
+                ElementwiseKind::LogNonPositiveToNeg87 => (
+                    BUILTIN_LOG_NONPOSITIVE_TO_NEG87,
+                    log_nonpositive_to_neg87_f32,
+                ),
                 ElementwiseKind::Log1p => (BUILTIN_LOG1P, log1p_f32),
-                ElementwiseKind::Log1pBelowMinusOneToNeg87 =>
-                    (BUILTIN_LOG1P_BELOW_MINUS_ONE_TO_NEG87, log1p_below_minus_one_to_neg87_f32),
+                ElementwiseKind::Log1pBelowMinusOneToNeg87 => (
+                    BUILTIN_LOG1P_BELOW_MINUS_ONE_TO_NEG87,
+                    log1p_below_minus_one_to_neg87_f32,
+                ),
                 ElementwiseKind::Log1pAbs => (BUILTIN_LOG1P_ABS, log1p_abs_f32),
                 ElementwiseKind::Sin => (BUILTIN_SIN, sin_f32),
                 ElementwiseKind::Cos => (BUILTIN_COS, cos_f32),
@@ -1570,24 +2159,35 @@ fn prepare_node(
             }
         }
         Operation::ScalarElementwise(spec)
-            if inputs.len() == 1 && a.shape == output.shape && !avx2
-                && matches!(kernel.family,
-                    KernelFamily::ScalarElementwise | KernelFamily::ScalarPowerThreeHalves) => {
+            if inputs.len() == 1
+                && a.shape == output.shape
+                && !avx2
+                && matches!(
+                    kernel.family,
+                    KernelFamily::ScalarElementwise | KernelFamily::ScalarPowerThreeHalves
+                ) =>
+        {
             spec.validate().map_err(CpuNativeError::InvalidPlan)?;
             command.scalar0 = f32::from_bits(spec.scalar0_f32_bits);
             command.scalar1 = f32::from_bits(spec.scalar1_f32_bits);
             choose_scalar_entry(spec.kind, spec.scalar0_f32_bits, kernel.family)?
         }
-        Operation::Reduction { kind, axes: AxisSelector::All, keep_dims }
-            if inputs.len() == 1 && !avx2
-                && kernel.family == KernelFamily::RowwiseReduction => {
-            if output.len != 1 || (!keep_dims && output.shape != StaticShape::Rank0)
-                || (keep_dims && output.shape.rank() != a.shape.rank()) {
+        Operation::Reduction {
+            kind,
+            axes: AxisSelector::All,
+            keep_dims,
+        } if inputs.len() == 1 && !avx2 && kernel.family == KernelFamily::RowwiseReduction => {
+            if output.len != 1
+                || (!keep_dims && output.shape != StaticShape::Rank0)
+                || (keep_dims && output.shape.rank() != a.shape.rank())
+            {
                 return Err(CpuNativeError::InvalidShape);
             }
             if keep_dims {
                 for axis in 0..a.shape.rank() {
-                    if output.shape.dim(axis) != Some(1) { return Err(CpuNativeError::InvalidShape); }
+                    if output.shape.dim(axis) != Some(1) {
+                        return Err(CpuNativeError::InvalidShape);
+                    }
                 }
             }
             command.k = a.len;
@@ -1596,12 +2196,19 @@ fn prepare_node(
         // Flip is materialized into a disjoint f32 buffer. The optimized
         // provider accepts a single axis or a consecutive nontrivial block;
         // other selections require a separate mapping implementation.
-        Operation::Flip { axes } if inputs.len() == 1 && !avx2
-            && a.shape == output.shape
-            && matches!(kernel.family, KernelFamily::FlipGeneric | KernelFamily::FlipContiguous2d) => {
-            Operation::Flip { axes }.validate_basic().map_err(CpuNativeError::InvalidPlan)?;
-            if kernel.family == KernelFamily::FlipContiguous2d
-                && a.shape.rank() != 2 {
+        Operation::Flip { axes }
+            if inputs.len() == 1
+                && !avx2
+                && a.shape == output.shape
+                && matches!(
+                    kernel.family,
+                    KernelFamily::FlipGeneric | KernelFamily::FlipContiguous2d
+                ) =>
+        {
+            Operation::Flip { axes }
+                .validate_basic()
+                .map_err(CpuNativeError::InvalidPlan)?;
+            if kernel.family == KernelFamily::FlipContiguous2d && a.shape.rank() != 2 {
                 return Err(CpuNativeError::UnsupportedOperation);
             }
             match flip_block_geometry(a.shape, axes) {
@@ -1612,7 +2219,8 @@ fn prepare_node(
                     (BUILTIN_FLIP_AXIS_BLOCK, flip_axis_f32)
                 }
                 Err(CpuNativeError::UnsupportedOperation)
-                    if kernel.family == KernelFamily::FlipGeneric => {
+                    if kernel.family == KernelFamily::FlipGeneric =>
+                {
                     let mut mask = 0_u8;
                     for index in 0..usize::from(axes.len) {
                         mask |= 1_u8 << axes.axes[index];
@@ -1623,50 +2231,66 @@ fn prepare_node(
                 Err(error) => return Err(error),
             }
         }
-        Operation::Softmax { axis, log } if inputs.len() == 1 && !avx2
-            && a.shape == output.shape
-            && kernel.family == (if log { KernelFamily::FusedLogSoftmax }
-                                 else { KernelFamily::FusedSoftmax }) => {
+        Operation::Softmax { axis, log }
+            if inputs.len() == 1
+                && !avx2
+                && a.shape == output.shape
+                && kernel.family
+                    == (if log {
+                        KernelFamily::FusedLogSoftmax
+                    } else {
+                        KernelFamily::FusedSoftmax
+                    }) =>
+        {
             let (outer, axis_length, inner) =
                 contiguous_axis_geometry(a.shape, usize::from(axis), false)?;
             command.m = outer;
             command.k = axis_length;
             command.n = inner;
-            if log { (BUILTIN_LOG_SOFTMAX, log_softmax_axis_f32) }
-            else { (BUILTIN_SOFTMAX, softmax_axis_f32) }
+            if log {
+                (BUILTIN_LOG_SOFTMAX, log_softmax_axis_f32)
+            } else {
+                (BUILTIN_SOFTMAX, softmax_axis_f32)
+            }
         }
-        Operation::Scan(spec) if inputs.len() == 1 && !avx2
-            && spec.output == ScanOutput::Values
-            && a.shape == output.shape
-            && matches!(kernel.family,
-                KernelFamily::ParallelPrefixScan | KernelFamily::SegmentedScan) => {
-            Operation::Scan(spec).validate_basic().map_err(CpuNativeError::InvalidPlan)?;
+        Operation::Scan(spec)
+            if inputs.len() == 1
+                && !avx2
+                && spec.output == ScanOutput::Values
+                && a.shape == output.shape
+                && matches!(
+                    kernel.family,
+                    KernelFamily::ParallelPrefixScan | KernelFamily::SegmentedScan
+                ) =>
+        {
+            Operation::Scan(spec)
+                .validate_basic()
+                .map_err(CpuNativeError::InvalidPlan)?;
             let (outer, axis_length, inner) =
                 contiguous_axis_geometry(a.shape, usize::from(spec.axis), true)?;
             command.m = outer;
             command.k = axis_length;
             command.n = inner;
             match (spec.kind, spec.inclusive) {
-                (ScanKind::Sum, true) =>
-                    (BUILTIN_SCAN_SUM_INCLUSIVE, scan_axis_f32::<0, true>),
-                (ScanKind::Sum, false) =>
-                    (BUILTIN_SCAN_SUM_EXCLUSIVE, scan_axis_f32::<0, false>),
-                (ScanKind::Product, true) =>
-                    (BUILTIN_SCAN_PRODUCT, scan_axis_f32::<1, true>),
-                (ScanKind::Minimum, true) =>
-                    (BUILTIN_SCAN_MINIMUM, scan_axis_f32::<2, true>),
-                (ScanKind::Maximum, true) =>
-                    (BUILTIN_SCAN_MAXIMUM, scan_axis_f32::<3, true>),
-                (ScanKind::LogSumExp, true) =>
-                    (BUILTIN_SCAN_LOGSUMEXP, scan_axis_f32::<4, true>),
+                (ScanKind::Sum, true) => (BUILTIN_SCAN_SUM_INCLUSIVE, scan_axis_f32::<0, true>),
+                (ScanKind::Sum, false) => (BUILTIN_SCAN_SUM_EXCLUSIVE, scan_axis_f32::<0, false>),
+                (ScanKind::Product, true) => (BUILTIN_SCAN_PRODUCT, scan_axis_f32::<1, true>),
+                (ScanKind::Minimum, true) => (BUILTIN_SCAN_MINIMUM, scan_axis_f32::<2, true>),
+                (ScanKind::Maximum, true) => (BUILTIN_SCAN_MAXIMUM, scan_axis_f32::<3, true>),
+                (ScanKind::LogSumExp, true) => (BUILTIN_SCAN_LOGSUMEXP, scan_axis_f32::<4, true>),
                 _ => return Err(CpuNativeError::UnsupportedOperation),
             }
         }
-        Operation::Sort(spec) if inputs.len() == 1 && !avx2
-            && spec.output == SortOutput::Values && spec.stable
-            && a.shape == output.shape
-            && kernel.family == KernelFamily::ComparisonSort => {
-            Operation::Sort(spec).validate_basic()
+        Operation::Sort(spec)
+            if inputs.len() == 1
+                && !avx2
+                && spec.output == SortOutput::Values
+                && spec.stable
+                && a.shape == output.shape
+                && kernel.family == KernelFamily::ComparisonSort =>
+        {
+            Operation::Sort(spec)
+                .validate_basic()
                 .map_err(CpuNativeError::InvalidPlan)?;
             let (outer, axis_length, inner) =
                 contiguous_axis_geometry(a.shape, usize::from(spec.axis), true)?;
@@ -1674,38 +2298,59 @@ fn prepare_node(
             command.k = axis_length;
             command.n = inner;
             match (spec.descending, spec.nan_policy) {
-                (false, SortNanPolicy::NaNsFirst) =>
-                    (BUILTIN_SORT_ASC_NANS_FIRST, sort_values_axis_f32::<false, true>),
-                (false, SortNanPolicy::NaNsLast) =>
-                    (BUILTIN_SORT_ASC_NANS_LAST, sort_values_axis_f32::<false, false>),
-                (true, SortNanPolicy::NaNsFirst) =>
-                    (BUILTIN_SORT_DESC_NANS_FIRST, sort_values_axis_f32::<true, true>),
-                (true, SortNanPolicy::NaNsLast) =>
-                    (BUILTIN_SORT_DESC_NANS_LAST, sort_values_axis_f32::<true, false>),
+                (false, SortNanPolicy::NaNsFirst) => (
+                    BUILTIN_SORT_ASC_NANS_FIRST,
+                    sort_values_axis_f32::<false, true>,
+                ),
+                (false, SortNanPolicy::NaNsLast) => (
+                    BUILTIN_SORT_ASC_NANS_LAST,
+                    sort_values_axis_f32::<false, false>,
+                ),
+                (true, SortNanPolicy::NaNsFirst) => (
+                    BUILTIN_SORT_DESC_NANS_FIRST,
+                    sort_values_axis_f32::<true, true>,
+                ),
+                (true, SortNanPolicy::NaNsLast) => (
+                    BUILTIN_SORT_DESC_NANS_LAST,
+                    sort_values_axis_f32::<true, false>,
+                ),
             }
         }
-        Operation::Normalization(spec) if inputs.len() == 1 && !avx2
-            && a.shape == output.shape
-            && kernel.family == KernelFamily::RowwiseNormalization
-            && spec.kind == NormalizationKind::GroupNorm => {
-            Operation::Normalization(spec).validate_basic()
+        Operation::Normalization(spec)
+            if inputs.len() == 1
+                && !avx2
+                && a.shape == output.shape
+                && kernel.family == KernelFamily::RowwiseNormalization
+                && spec.kind == NormalizationKind::GroupNorm =>
+        {
+            Operation::Normalization(spec)
+                .validate_basic()
                 .map_err(CpuNativeError::InvalidPlan)?;
             let (groups, group_size, axes, direct) =
                 group_normalization_geometry(a.shape, spec.channel_axis, spec.groups)?;
             command.m = groups;
             command.k = group_size;
             // Only for this group-wise kernel, n is the integer group count.
-            command.n = usize::try_from(spec.groups)
-                .map_err(|_| CpuNativeError::InvalidShape)?;
+            command.n = usize::try_from(spec.groups).map_err(|_| CpuNativeError::InvalidShape)?;
             command.scalar0 = f32::from_bits(spec.epsilon_f32_bits);
             command.arbitrary_axes = Some(axes);
-            if direct { (BUILTIN_GROUP_NORM_CONTIGUOUS, normalize_suffix_f32::<0>) }
-            else { (BUILTIN_GROUP_NORM_CHANNEL_AXIS, normalize_group_channels_f32) }
+            if direct {
+                (BUILTIN_GROUP_NORM_CONTIGUOUS, normalize_suffix_f32::<0>)
+            } else {
+                (
+                    BUILTIN_GROUP_NORM_CHANNEL_AXIS,
+                    normalize_group_channels_f32,
+                )
+            }
         }
-        Operation::Normalization(spec) if inputs.len() == 1 && !avx2
-            && a.shape == output.shape
-            && kernel.family == KernelFamily::RowwiseNormalization => {
-            Operation::Normalization(spec).validate_basic()
+        Operation::Normalization(spec)
+            if inputs.len() == 1
+                && !avx2
+                && a.shape == output.shape
+                && kernel.family == KernelFamily::RowwiseNormalization =>
+        {
+            Operation::Normalization(spec)
+                .validate_basic()
                 .map_err(CpuNativeError::InvalidPlan)?;
             // Keep the fast contiguous suffix entry for the common case.
             // Arbitrary but valid axis masks route to an independent, verified
@@ -1718,8 +2363,7 @@ fn prepare_node(
                     false
                 }
                 Err(CpuNativeError::UnsupportedOperation) => {
-                    let (groups, count, axes) =
-                        normalized_arbitrary_geometry(a.shape, spec.axes)?;
+                    let (groups, count, axes) = normalized_arbitrary_geometry(a.shape, spec.axes)?;
                     command.m = groups;
                     command.k = count;
                     command.arbitrary_axes = Some(axes);
@@ -1730,38 +2374,60 @@ fn prepare_node(
             command.n = 1;
             command.scalar0 = f32::from_bits(spec.epsilon_f32_bits);
             match (spec.kind, generic) {
-                (NormalizationKind::LayerNorm, false) =>
-                    (BUILTIN_LAYERNORM, normalize_suffix_f32::<0>),
-                (NormalizationKind::RmsNorm, false) =>
-                    (BUILTIN_RMSNORM, normalize_suffix_f32::<1>),
-                (NormalizationKind::L2Norm, false) =>
-                    (BUILTIN_L2_NORMALIZATION, normalize_suffix_f32::<2>),
-                (NormalizationKind::LayerNorm, true) =>
-                    (BUILTIN_LAYERNORM_AXES, normalize_arbitrary_axes_f32::<0>),
-                (NormalizationKind::RmsNorm, true) =>
-                    (BUILTIN_RMSNORM_AXES, normalize_arbitrary_axes_f32::<1>),
-                (NormalizationKind::L2Norm, true) =>
-                    (BUILTIN_L2_NORMALIZATION_AXES, normalize_arbitrary_axes_f32::<2>),
+                (NormalizationKind::LayerNorm, false) => {
+                    (BUILTIN_LAYERNORM, normalize_suffix_f32::<0>)
+                }
+                (NormalizationKind::RmsNorm, false) => (BUILTIN_RMSNORM, normalize_suffix_f32::<1>),
+                (NormalizationKind::L2Norm, false) => {
+                    (BUILTIN_L2_NORMALIZATION, normalize_suffix_f32::<2>)
+                }
+                (NormalizationKind::LayerNorm, true) => {
+                    (BUILTIN_LAYERNORM_AXES, normalize_arbitrary_axes_f32::<0>)
+                }
+                (NormalizationKind::RmsNorm, true) => {
+                    (BUILTIN_RMSNORM_AXES, normalize_arbitrary_axes_f32::<1>)
+                }
+                (NormalizationKind::L2Norm, true) => (
+                    BUILTIN_L2_NORMALIZATION_AXES,
+                    normalize_arbitrary_axes_f32::<2>,
+                ),
                 // The IR defines BatchNorm as population statistics over
                 // every non-channel axis, including the batch axis. With a
                 // valid channel_axis != 0, its axis mask is non-suffix.
-                (NormalizationKind::BatchNorm, true) =>
-                    (BUILTIN_BATCH_NORM_AXES, normalize_arbitrary_axes_f32::<0>),
+                (NormalizationKind::BatchNorm, true) => {
+                    (BUILTIN_BATCH_NORM_AXES, normalize_arbitrary_axes_f32::<0>)
+                }
                 // InstanceNorm normalizes each (sample, channel) over its
                 // spatial axes. A suffix may use the existing fast kernel.
-                (NormalizationKind::InstanceNorm, false) =>
-                    (BUILTIN_INSTANCE_NORM_SUFFIX, normalize_suffix_f32::<0>),
-                (NormalizationKind::InstanceNorm, true) =>
-                    (BUILTIN_INSTANCE_NORM_AXES, normalize_arbitrary_axes_f32::<0>),
+                (NormalizationKind::InstanceNorm, false) => {
+                    (BUILTIN_INSTANCE_NORM_SUFFIX, normalize_suffix_f32::<0>)
+                }
+                (NormalizationKind::InstanceNorm, true) => (
+                    BUILTIN_INSTANCE_NORM_AXES,
+                    normalize_arbitrary_axes_f32::<0>,
+                ),
                 // GroupNorm takes the dedicated branch above, which freezes
                 // the channel partition and its exact native entry.
                 _ => return Err(CpuNativeError::UnsupportedOperation),
             }
         }
-        Operation::MatMul { transpose_lhs, transpose_rhs } if inputs.len() == 2
-            && matches!(kernel.family, KernelFamily::CpuSgemmDirect | KernelFamily::CpuSgemmDirectAxpy) => {
+        Operation::MatMul {
+            transpose_lhs,
+            transpose_rhs,
+        } if inputs.len() == 2
+            && matches!(
+                kernel.family,
+                KernelFamily::CpuSgemmDirect | KernelFamily::CpuSgemmDirectAxpy
+            ) =>
+        {
             let second = b.ok_or(CpuNativeError::UnsupportedOperation)?;
-            let (m,k,n) = matmul_dimensions(a.shape, second.shape, output.shape, transpose_lhs, transpose_rhs)?;
+            let (m, k, n) = matmul_dimensions(
+                a.shape,
+                second.shape,
+                output.shape,
+                transpose_lhs,
+                transpose_rhs,
+            )?;
             command.m = m;
             command.k = k;
             command.n = n;
@@ -1769,13 +2435,15 @@ fn prepare_node(
             command.transpose_rhs = transpose_rhs;
             command.lhs_vector = a.shape.rank() == 1;
             command.rhs_vector = second.shape.rank() == 1;
-            let vectorizable = !transpose_lhs && !transpose_rhs
-                && !command.lhs_vector && !command.rhs_vector;
+            let vectorizable =
+                !transpose_lhs && !transpose_rhs && !command.lhs_vector && !command.rhs_vector;
             choose_gemm_entry(kernel.family, avx2, vectorizable)?
         }
         _ => return Err(CpuNativeError::UnsupportedOperation),
     };
-    if kernel.artifact.entry != name { return Err(CpuNativeError::UnsupportedArtifact); }
+    if kernel.artifact.entry != name {
+        return Err(CpuNativeError::UnsupportedArtifact);
+    }
     // Direct built-ins always execute the FULL flattened output domain on the
     // calling thread. No partial sharding, affinity binding or hidden queues.
     // Limit admission to this explicit 0..N work contract until a real worker
@@ -1785,12 +2453,18 @@ fn prepare_node(
         return Err(CpuNativeError::UnsupportedArtifact);
     }
     // Do not attach the AVX2 ISA tag to scalar copy or unsupported operations.
-    if avx2 && !matches!(node.operation,
-        Operation::Elementwise {
-            kind: ElementwiseKind::Add | ElementwiseKind::Subtract
-                | ElementwiseKind::Multiply | ElementwiseKind::Divide,
-            arity: 2, ..
-        } | Operation::MatMul { .. })
+    if avx2
+        && !matches!(
+            node.operation,
+            Operation::Elementwise {
+                kind: ElementwiseKind::Add
+                    | ElementwiseKind::Subtract
+                    | ElementwiseKind::Multiply
+                    | ElementwiseKind::Divide,
+                arity: 2,
+                ..
+            } | Operation::MatMul { .. }
+        )
     {
         return Err(CpuNativeError::UnsupportedCpuFeature);
     }
@@ -1802,8 +2476,10 @@ fn prepare_node(
 /// input bit patterns, but the fast replay path does not branch on the scalar
 /// operation or exponent. Numeric compatibility is part of each entry name.
 fn choose_scalar_entry(
-    kind: ScalarElementwiseKind, bits: u32, family: KernelFamily,
-) -> Result<(&'static str, unsafe fn(&CpuCommand)), CpuNativeError> {
+    kind: ScalarElementwiseKind,
+    bits: u32,
+    family: KernelFamily,
+) -> Result<NamedCpuKernel, CpuNativeError> {
     if family == KernelFamily::ScalarPowerThreeHalves {
         return if kind == ScalarElementwiseKind::Power && bits == 1.5f32.to_bits() {
             Ok((BUILTIN_SCALAR_POWER_3_2, scalar_power_three_halves_f32))
@@ -1817,10 +2493,10 @@ fn choose_scalar_entry(
     match kind {
         ScalarElementwiseKind::Add => Ok((BUILTIN_SCALAR_ADD, scalar_add_f32)),
         ScalarElementwiseKind::Multiply => Ok((BUILTIN_SCALAR_MUL, scalar_mul_f32)),
-        ScalarElementwiseKind::DivideZeroToZero =>
-            Ok((BUILTIN_SCALAR_DIV_ZERO, scalar_div_zero_to_zero_f32)),
-        ScalarElementwiseKind::LeakyRelu =>
-            Ok((BUILTIN_SCALAR_LEAKY_RELU, scalar_leaky_relu_f32)),
+        ScalarElementwiseKind::DivideZeroToZero => {
+            Ok((BUILTIN_SCALAR_DIV_ZERO, scalar_div_zero_to_zero_f32))
+        }
+        ScalarElementwiseKind::LeakyRelu => Ok((BUILTIN_SCALAR_LEAKY_RELU, scalar_leaky_relu_f32)),
         ScalarElementwiseKind::Clamp => Ok((BUILTIN_SCALAR_CLAMP, scalar_clamp_f32)),
         ScalarElementwiseKind::Power => {
             if bits == 1.0f32.to_bits() {
@@ -1845,8 +2521,9 @@ fn choose_scalar_entry(
 /// Keeping this decision in a pure helper makes wrong frozen entry selection
 /// and unsupported empty reductions testable without a fabricated AOT image.
 fn choose_all_reduction_entry(
-    kind: ReductionKind, input_len: usize,
-) -> Result<(&'static str, unsafe fn(&CpuCommand)), CpuNativeError> {
+    kind: ReductionKind,
+    input_len: usize,
+) -> Result<NamedCpuKernel, CpuNativeError> {
     match kind {
         ReductionKind::Sum => Ok((BUILTIN_SUM, sum_all_f32)),
         ReductionKind::Product => Ok((BUILTIN_PRODUCT, product_all_f32)),
@@ -1857,12 +2534,15 @@ fn choose_all_reduction_entry(
         ReductionKind::L1Norm if input_len != 0 => Ok((BUILTIN_REDUCE_L1, l1_norm_all_f32)),
         ReductionKind::L2Norm if input_len != 0 => Ok((BUILTIN_REDUCE_L2, l2_norm_all_f32)),
         ReductionKind::LInfNorm if input_len != 0 => Ok((BUILTIN_REDUCE_LINF, linf_norm_all_f32)),
-        ReductionKind::VariancePopulation if input_len != 0 =>
-            Ok((BUILTIN_REDUCE_VARIANCE, variance_population_all_f32)),
-        ReductionKind::StdDevPopulation if input_len != 0 =>
-            Ok((BUILTIN_REDUCE_STDDEV, stddev_population_all_f32)),
-        ReductionKind::LogSumExp if input_len != 0 =>
-            Ok((BUILTIN_REDUCE_LOGSUMEXP, logsumexp_all_f32)),
+        ReductionKind::VariancePopulation if input_len != 0 => {
+            Ok((BUILTIN_REDUCE_VARIANCE, variance_population_all_f32))
+        }
+        ReductionKind::StdDevPopulation if input_len != 0 => {
+            Ok((BUILTIN_REDUCE_STDDEV, stddev_population_all_f32))
+        }
+        ReductionKind::LogSumExp if input_len != 0 => {
+            Ok((BUILTIN_REDUCE_LOGSUMEXP, logsumexp_all_f32))
+        }
         _ => Err(CpuNativeError::UnsupportedOperation),
     }
 }
@@ -1871,49 +2551,69 @@ fn choose_all_reduction_entry(
 /// instruction family to the actual linked-in function; a family mismatch
 /// is an error, not permission to silently execute another implementation.
 fn choose_gemm_entry(
-    family: KernelFamily, avx2: bool, vectorizable: bool,
-) -> Result<(&'static str, unsafe fn(&CpuCommand)), CpuNativeError> {
+    family: KernelFamily,
+    avx2: bool,
+    vectorizable: bool,
+) -> Result<NamedCpuKernel, CpuNativeError> {
     match (family, avx2, vectorizable) {
-        (KernelFamily::CpuSgemmDirect, false, _) =>
-            Ok((BUILTIN_GEMM, gemm_dot_f32)),
-        (KernelFamily::CpuSgemmDirect, true, true) =>
-            Ok((BUILTIN_GEMM_AVX2, gemm_entry_avx2())),
-        (KernelFamily::CpuSgemmDirectAxpy, false, true) =>
-            Ok((BUILTIN_GEMM_AXPY, gemm_axpy_f32)),
+        (KernelFamily::CpuSgemmDirect, false, _) => Ok((BUILTIN_GEMM, gemm_dot_f32)),
+        (KernelFamily::CpuSgemmDirect, true, true) => Ok((BUILTIN_GEMM_AVX2, gemm_entry_avx2())),
+        (KernelFamily::CpuSgemmDirectAxpy, false, true) => Ok((BUILTIN_GEMM_AXPY, gemm_axpy_f32)),
         _ => Err(CpuNativeError::UnsupportedOperation),
     }
 }
 
 fn matmul_dimensions(
-    lhs: StaticShape, rhs: StaticShape, out: StaticShape,
-    ta: bool, tb: bool,
-) -> Result<(usize,usize,usize), CpuNativeError> {
-    let (m,k1) = match lhs {
-        StaticShape::Rank1([k]) if !ta => (1,k),
-        StaticShape::Rank2([rows, cols]) => if ta { (cols,rows) } else { (rows,cols) },
+    lhs: StaticShape,
+    rhs: StaticShape,
+    out: StaticShape,
+    ta: bool,
+    tb: bool,
+) -> Result<(usize, usize, usize), CpuNativeError> {
+    let (m, k1) = match lhs {
+        StaticShape::Rank1([k]) if !ta => (1, k),
+        StaticShape::Rank2([rows, cols]) => {
+            if ta {
+                (cols, rows)
+            } else {
+                (rows, cols)
+            }
+        }
         _ => return Err(CpuNativeError::UnsupportedOperation),
     };
-    let (k2,n) = match rhs {
-        StaticShape::Rank1([k]) if !tb => (k,1),
-        StaticShape::Rank2([rows, cols]) => if tb { (cols,rows) } else { (rows,cols) },
+    let (k2, n) = match rhs {
+        StaticShape::Rank1([k]) if !tb => (k, 1),
+        StaticShape::Rank2([rows, cols]) => {
+            if tb {
+                (cols, rows)
+            } else {
+                (rows, cols)
+            }
+        }
         _ => return Err(CpuNativeError::UnsupportedOperation),
     };
-    if k1 != k2 { return Err(CpuNativeError::InvalidShape); }
+    if k1 != k2 {
+        return Err(CpuNativeError::InvalidShape);
+    }
     let expected = match (lhs.rank() == 1, rhs.rank() == 1) {
-        (true,true) => StaticShape::Rank0,
-        (true,false) => StaticShape::Rank1([n]),
-        (false,true) => StaticShape::Rank1([m]),
-        (false,false) => StaticShape::Rank2([m,n]),
+        (true, true) => StaticShape::Rank0,
+        (true, false) => StaticShape::Rank1([n]),
+        (false, true) => StaticShape::Rank1([m]),
+        (false, false) => StaticShape::Rank2([m, n]),
     };
-    if out != expected { return Err(CpuNativeError::InvalidShape); }
-    Ok((m,k1,n))
+    if out != expected {
+        return Err(CpuNativeError::InvalidShape);
+    }
+    Ok((m, k1, n))
 }
 
 /// Exact C-order copy; uses memcpy semantics only because the binder proved
 /// output and input memory disjoint and exactly equally shaped.
 unsafe fn copy_f32(cmd: &CpuCommand) {
     // SAFETY: bounds/non-overlap are proven once by prepare_node.
-    unsafe { ptr::copy_nonoverlapping(cmd.a, cmd.out, cmd.len); }
+    unsafe {
+        ptr::copy_nonoverlapping(cmd.a, cmd.out, cmd.len);
+    }
 }
 
 macro_rules! simple_binary {
@@ -1937,7 +2637,9 @@ unsafe fn div_zero_to_zero_f32(cmd: &CpuCommand) {
     for i in 0..cmd.len {
         unsafe {
             let divisor = *cmd.b.add(i);
-            *cmd.out.add(i) = if divisor == 0.0 { 0.0 } else {
+            *cmd.out.add(i) = if divisor == 0.0 {
+                0.0
+            } else {
                 *cmd.a.add(i) / divisor
             };
         }
@@ -1947,7 +2649,9 @@ unsafe fn div_zero_to_zero_f32(cmd: &CpuCommand) {
 /// IEEE reciprocal and the explicitly separate zero-to-zero compatibility form.
 unsafe fn reciprocal_f32(cmd: &CpuCommand) {
     for i in 0..cmd.len {
-        unsafe { *cmd.out.add(i) = 1.0_f32 / *cmd.a.add(i); }
+        unsafe {
+            *cmd.out.add(i) = 1.0_f32 / *cmd.a.add(i);
+        }
     }
 }
 unsafe fn reciprocal_zero_to_zero_f32(cmd: &CpuCommand) {
@@ -1971,7 +2675,9 @@ unsafe fn sqrt_nonpositive_to_zero_f32(cmd: &CpuCommand) {
 /// The kernel always executes the complete C-order tensor without broadcasting.
 unsafe fn hypot_f32(cmd: &CpuCommand) {
     for i in 0..cmd.len {
-        unsafe { *cmd.out.add(i) = (*cmd.a.add(i)).hypot(*cmd.b.add(i)); }
+        unsafe {
+            *cmd.out.add(i) = (*cmd.a.add(i)).hypot(*cmd.b.add(i));
+        }
     }
 }
 
@@ -1995,7 +2701,9 @@ macro_rules! unary_f32 {
             for i in 0..cmd.len {
                 let $x = unsafe { *cmd.a.add(i) };
                 let y: f32 = $expr;
-                unsafe { *cmd.out.add(i) = y; }
+                unsafe {
+                    *cmd.out.add(i) = y;
+                }
             }
         }
     };
@@ -2046,14 +2754,18 @@ fn horner_leading_one(x: f64, coeff: &[f64]) -> f64 {
 }
 
 const ERF_T: [f64; 5] = [
-    9.60497373987051638749e0, 9.00260197203842689217e1,
-    2.23200534594684319226e3, 7.00332514112805075473e3,
-    5.55923013010394962768e4,
+    9.604_973_739_870_516,
+    9.002_601_972_038_427e1,
+    2.232_005_345_946_843e3,
+    7.003_325_141_128_051e3,
+    5.559_230_130_103_949e4,
 ];
 const ERF_U: [f64; 5] = [
-    3.35617141647503099647e1, 5.21357949780152679795e2,
-    4.59432382970980127987e3, 2.26290000613890934246e4,
-    4.92673942608635921086e4,
+    3.356_171_416_475_031e1,
+    5.213_579_497_801_527e2,
+    4.594_323_829_709_801e3,
+    2.262_900_006_138_909_5e4,
+    4.926_739_426_086_359e4,
 ];
 
 /// erfc(x) for finite nonnegative x; evaluated before casting to f32 so the
@@ -2066,29 +2778,45 @@ fn erfc_nonnegative_f64(x: f64) -> f64 {
     }
     // exp(-27^2) is below the minimum positive f64 normal by several orders
     // and cannot contribute even an f32 subnormal GELU result.
-    if x > 27.0 { return 0.0; }
+    if x > 27.0 {
+        return 0.0;
+    }
     const P: [f64; 9] = [
-        2.46196981473530512524e-10, 5.64189564831068821977e-1,
-        7.46321056442269912687e0, 4.86371970985681366614e1,
-        1.96520832956077098242e2, 5.26445194995477358631e2,
-        9.34528527171957607540e2, 1.02755188689515710272e3,
-        5.57535335369399327526e2,
+        2.461_969_814_735_305e-10,
+        5.641_895_648_310_689e-1,
+        7.463_210_564_422_699,
+        4.863_719_709_856_814e1,
+        1.965_208_329_560_771e2,
+        5.264_451_949_954_773e2,
+        9.345_285_271_719_576e2,
+        1.027_551_886_895_157_2e3,
+        5.575_353_353_693_994e2,
     ];
     const Q: [f64; 8] = [
-        1.32281951154744992508e1, 8.67072140885989742329e1,
-        3.54937778887819891062e2, 9.75708501743205489753e2,
-        1.82390916687909736289e3, 2.24633760818710981792e3,
-        1.65666309194161350182e3, 5.57535340817727675546e2,
+        1.322_819_511_547_449_9e1,
+        8.670_721_408_859_897e1,
+        3.549_377_788_878_199e2,
+        9.757_085_017_432_055e2,
+        1.823_909_166_879_097_3e3,
+        2.246_337_608_187_109_7e3,
+        1.656_663_091_941_613_4e3,
+        5.575_353_408_177_277e2,
     ];
     const R: [f64; 6] = [
-        5.64189583547755073984e-1, 1.27536670759978104416e0,
-        5.01905042251180477414e0, 6.16021097993053585195e0,
-        7.40974269950448939160e0, 2.97886665372100240670e0,
+        5.641_895_835_477_551e-1,
+        1.275_366_707_599_781,
+        5.019_050_422_511_805,
+        6.160_210_979_930_536,
+        7.409_742_699_504_489_5,
+        2.978_866_653_721_002_2,
     ];
     const S: [f64; 6] = [
-        2.26052863220117276590e0, 9.39603524938001434673e0,
-        1.20489539808096656605e1, 1.70814450747565897222e1,
-        9.60896809063285878198e0, 3.36907645100081516050e0,
+        2.260_528_632_201_172_6,
+        9.396_035_249_380_015,
+        1.204_895_398_080_966_6e1,
+        1.708_144_507_475_659e1,
+        9.608_968_090_632_859,
+        3.369_076_451_000_815,
     ];
     let fraction = if x < 8.0 {
         horner(x, &P) / horner_leading_one(x, &Q)
@@ -2100,8 +2828,12 @@ fn erfc_nonnegative_f64(x: f64) -> f64 {
 
 #[inline]
 fn erf_value_f32(x: f32) -> f32 {
-    if x.is_nan() || x == 0.0 { return x; } // preserve NaN bits and +/-0
-    if x.is_infinite() { return if x.is_sign_negative() { -1.0 } else { 1.0 }; }
+    if x.is_nan() || x == 0.0 {
+        return x;
+    } // preserve NaN bits and +/-0
+    if x.is_infinite() {
+        return if x.is_sign_negative() { -1.0 } else { 1.0 };
+    }
     let ax = f64::from(x).abs();
     let value = if ax < 1.0 {
         // Avoid catastrophic cancellation for tiny positive subnormals:
@@ -2110,14 +2842,24 @@ fn erf_value_f32(x: f32) -> f32 {
     } else {
         1.0 - erfc_nonnegative_f64(ax)
     };
-    if x.is_sign_negative() { -(value as f32) } else { value as f32 }
+    if x.is_sign_negative() {
+        -(value as f32)
+    } else {
+        value as f32
+    }
 }
 
 #[inline]
 fn gelu_erf_value_f32(x: f32) -> f32 {
-    if x.is_nan() || x == 0.0 { return x; }
-    if x == f32::NEG_INFINITY { return -0.0; }
-    if x == f32::INFINITY { return f32::INFINITY; }
+    if x.is_nan() || x == 0.0 {
+        return x;
+    }
+    if x == f32::NEG_INFINITY {
+        return -0.0;
+    }
+    if x == f32::INFINITY {
+        return f32::INFINITY;
+    }
     let erfc = erfc_nonnegative_f64(f64::from(x).abs() / std::f64::consts::SQRT_2);
     let answer = if x.is_sign_negative() {
         0.5 * f64::from(x) * erfc
@@ -2148,7 +2890,9 @@ fn sigmoid_value(x: f32) -> f32 {
 // selects the non-NaN operand, which would silently turn NaN into zero.
 #[inline(always)]
 fn softplus_value(x: f32) -> f32 {
-    if x.is_nan() { return x; }
+    if x.is_nan() {
+        return x;
+    }
     x.max(0.0) + (-x.abs()).exp().ln_1p()
 }
 
@@ -2156,10 +2900,10 @@ unary_f32!(sigmoid_f32, x => sigmoid_value(x));
 // These are explicitly NaN-preserving. ReLU maps both signed zeros and
 // negative values to +0; ReLU6 caps positive values at exactly 6.
 unary_f32!(relu_f32, x => {
-    if x.is_nan() { x } else if x > 0.0 { x } else { 0.0 }
+    if x.is_nan() || x > 0.0 { x } else { 0.0 }
 });
 unary_f32!(relu6_f32, x => {
-    if x.is_nan() { x } else if x <= 0.0 { 0.0 } else if x >= 6.0 { 6.0 } else { x }
+    if x == 0.0 { 0.0 } else { x.clamp(0.0, 6.0) }
 });
 // x * sigmoid(x); handle the mathematically finite -infinity limit before
 // multiplying -infinity by an underflowed zero.
@@ -2207,10 +2951,9 @@ unary_f32!(sign_f32, x => {
     else { 1.0_f32 }
 });
 
-/// The *explicitly approximate* GELU tanh formula. This is NOT an erf GELU
-/// implementation and cannot bind either GeluErfExact or the ambiguous Gelu.
-/// Saturated endpoints avoid -infinity * 0 becoming NaN. All intermediates
-/// remain f32 under the selected strict-f32 arithmetic contract.
+// The explicitly approximate GELU tanh formula binds only GeluTanhApprox.
+// Saturated endpoints avoid -infinity * 0 becoming NaN. All intermediates
+// remain f32 under the selected strict-f32 arithmetic contract.
 unary_f32!(gelu_tanh_approx_f32, x => {
     if x == f32::NEG_INFINITY { -0.0 }
     else if x == f32::INFINITY { f32::INFINITY }
@@ -2224,25 +2967,46 @@ unary_f32!(gelu_tanh_approx_f32, x => {
 /// Binary canonical min/max always canonicalize NaNs and signed zeros.
 unsafe fn min_f32(cmd: &CpuCommand) {
     for i in 0..cmd.len {
-        unsafe { *cmd.out.add(i) = crate::tensor_light::canonical_minimum(*cmd.a.add(i), *cmd.b.add(i)); }
+        unsafe {
+            *cmd.out.add(i) = crate::tensor_light::canonical_minimum(*cmd.a.add(i), *cmd.b.add(i));
+        }
     }
 }
 unsafe fn max_f32(cmd: &CpuCommand) {
     for i in 0..cmd.len {
-        unsafe { *cmd.out.add(i) = crate::tensor_light::canonical_maximum(*cmd.a.add(i), *cmd.b.add(i)); }
+        unsafe {
+            *cmd.out.add(i) = crate::tensor_light::canonical_maximum(*cmd.a.add(i), *cmd.b.add(i));
+        }
     }
 }
 unsafe fn neg_f32(cmd: &CpuCommand) {
-    for i in 0..cmd.len { unsafe { *cmd.out.add(i) = -*cmd.a.add(i); } }
+    for i in 0..cmd.len {
+        unsafe {
+            *cmd.out.add(i) = -*cmd.a.add(i);
+        }
+    }
 }
 unsafe fn abs_f32(cmd: &CpuCommand) {
-    for i in 0..cmd.len { unsafe { *cmd.out.add(i) = (*cmd.a.add(i)).abs(); } }
+    for i in 0..cmd.len {
+        unsafe {
+            *cmd.out.add(i) = (*cmd.a.add(i)).abs();
+        }
+    }
 }
 unsafe fn square_f32(cmd: &CpuCommand) {
-    for i in 0..cmd.len { unsafe { let x = *cmd.a.add(i); *cmd.out.add(i) = x*x; } }
+    for i in 0..cmd.len {
+        unsafe {
+            let x = *cmd.a.add(i);
+            *cmd.out.add(i) = x * x;
+        }
+    }
 }
 unsafe fn sqrt_f32(cmd: &CpuCommand) {
-    for i in 0..cmd.len { unsafe { *cmd.out.add(i) = (*cmd.a.add(i)).sqrt(); } }
+    for i in 0..cmd.len {
+        unsafe {
+            *cmd.out.add(i) = (*cmd.a.add(i)).sqrt();
+        }
+    }
 }
 /// A finite f32 intermediate is NOT evidence that a short reduction is
 /// accurate: [1e8, 1, -1e8] loses the middle element and returns zero.
@@ -2253,15 +3017,23 @@ unsafe fn sqrt_f32(cmd: &CpuCommand) {
 unsafe fn sum_all_f32(cmd: &CpuCommand) {
     if cmd.k <= 2 {
         let mut sum32 = 0.0f32;
-        for i in 0..cmd.k { sum32 += unsafe { *cmd.a.add(i) }; }
+        for i in 0..cmd.k {
+            sum32 += unsafe { *cmd.a.add(i) };
+        }
         if sum32.is_finite() {
-            unsafe { *cmd.out = sum32; }
+            unsafe {
+                *cmd.out = sum32;
+            }
             return;
         }
     }
     let mut sum64 = 0.0f64;
-    for i in 0..cmd.k { sum64 += f64::from(unsafe { *cmd.a.add(i) }); }
-    unsafe { *cmd.out = sum64 as f32; }
+    for i in 0..cmd.k {
+        sum64 += f64::from(unsafe { *cmd.a.add(i) });
+    }
+    unsafe {
+        *cmd.out = sum64 as f32;
+    }
 }
 
 /// The ordinary single-pass f32 product is kept whenever it produces a
@@ -2276,11 +3048,15 @@ unsafe fn product_all_f32(cmd: &CpuCommand) {
     let mut real_zero = false;
     for i in 0..cmd.k {
         let value = unsafe { *cmd.a.add(i) };
-        if value == 0.0 { real_zero = true; }
+        if value == 0.0 {
+            real_zero = true;
+        }
         acc32 *= value;
     }
     if acc32.is_finite() && (acc32 != 0.0 || real_zero) {
-        unsafe { *cmd.out = acc32; }
+        unsafe {
+            *cmd.out = acc32;
+        }
         return;
     }
 
@@ -2292,12 +3068,20 @@ unsafe fn product_all_f32(cmd: &CpuCommand) {
     for i in 0..cmd.k {
         let value = unsafe { *cmd.a.add(i) };
         if value.is_nan() {
-            unsafe { *cmd.out = crate::tensor_light::CANONICAL_QUIET_NAN32; }
+            unsafe {
+                *cmd.out = crate::tensor_light::CANONICAL_QUIET_NAN32;
+            }
             return;
         }
         negative ^= value.is_sign_negative();
-        if value == 0.0 { has_zero = true; continue; }
-        if value.is_infinite() { has_infinity = true; continue; }
+        if value == 0.0 {
+            has_zero = true;
+            continue;
+        }
+        if value.is_infinite() {
+            has_infinity = true;
+            continue;
+        }
         // Every nonzero finite f32 converts to a NORMAL f64, including
         // f32 subnormals. Decode its binary exponent without logarithms.
         let bits = f64::from(value.abs()).to_bits();
@@ -2313,20 +3097,38 @@ unsafe fn product_all_f32(cmd: &CpuCommand) {
     // Invalid zero-times-infinity is always the canonical quiet NaN; do not
     // apply the product's sign parity to a NaN payload.
     if has_zero && has_infinity {
-        unsafe { *cmd.out = crate::tensor_light::CANONICAL_QUIET_NAN32; }
+        unsafe {
+            *cmd.out = crate::tensor_light::CANONICAL_QUIET_NAN32;
+        }
         return;
     }
-    let magnitude = if has_infinity { f32::INFINITY }
-        else if has_zero { 0.0f32 }
-        else if exponent >= 128 { f32::INFINITY }
-        else if exponent < -150 { 0.0f32 }
-        else { (mantissa * (2.0f64).powi(exponent as i32)) as f32 };
-    unsafe { *cmd.out = if negative { -magnitude } else { magnitude }; }
+    let magnitude = if has_infinity {
+        f32::INFINITY
+    } else if has_zero {
+        0.0f32
+    } else if exponent >= 128 {
+        f32::INFINITY
+    } else if exponent < -150 {
+        0.0f32
+    } else {
+        (mantissa * (2.0f64).powi(exponent as i32)) as f32
+    };
+    unsafe {
+        *cmd.out = if negative { -magnitude } else { magnitude };
+    }
 }
 unsafe fn count_nonzero_all_f32(cmd: &CpuCommand) {
     let mut count: u64 = 0;
-    for i in 0..cmd.k { unsafe { if *cmd.a.add(i) != 0.0 { count += 1; } } }
-    unsafe { *cmd.out = count as f32; }
+    for i in 0..cmd.k {
+        unsafe {
+            if *cmd.a.add(i) != 0.0 {
+                count += 1;
+            }
+        }
+    }
+    unsafe {
+        *cmd.out = count as f32;
+    }
 }
 
 // The scalar-only frozen family uses one direct, allocation-free pass per
@@ -2339,7 +3141,9 @@ macro_rules! scalar_kernel {
             for i in 0..cmd.len {
                 let $x = unsafe { *cmd.a.add(i) };
                 let value: f32 = $body;
-                unsafe { *cmd.out.add(i) = value; }
+                unsafe {
+                    *cmd.out.add(i) = value;
+                }
             }
         }
     };
@@ -2347,10 +3151,18 @@ macro_rules! scalar_kernel {
 scalar_kernel!(scalar_add_f32, |x, a, _b| x + a);
 scalar_kernel!(scalar_mul_f32, |x, a, _b| x * a);
 scalar_kernel!(scalar_div_zero_to_zero_f32, |x, a, _b| {
-    if a == 0.0 { 0.0 } else { x / a }
+    if a == 0.0 {
+        0.0
+    } else {
+        x / a
+    }
 });
 scalar_kernel!(scalar_leaky_relu_f32, |x, a, _b| {
-    if x >= 0.0 { x } else { a * x }
+    if x >= 0.0 {
+        x
+    } else {
+        a * x
+    }
 });
 scalar_kernel!(scalar_clamp_f32, |x, low, high| x.clamp(low, high));
 scalar_kernel!(scalar_power_identity_f32, |x, _a, _b| x);
@@ -2358,16 +3170,32 @@ scalar_kernel!(scalar_power_square_f32, |x, _a, _b| x * x);
 scalar_kernel!(scalar_power_safe_sqrt_f32, |x, _a, _b| {
     // Match the existing safe-sqrt operator: nonpositives map to +0, but
     // NaN continues through sqrt and remains NaN.
-    if x <= 0.0 { 0.0 } else { x.sqrt() }
+    if x <= 0.0 {
+        0.0
+    } else {
+        x.sqrt()
+    }
 });
 scalar_kernel!(scalar_power_safe_recip_f32, |x, _a, _b| {
-    if x == 0.0 { 0.0 } else { 1.0 / x }
+    if x == 0.0 {
+        0.0
+    } else {
+        1.0 / x
+    }
 });
 scalar_kernel!(scalar_power_three_halves_f32, |x, _a, _b| {
-    if x > 0.0 { x * x.sqrt() } else { 0.0 }
+    if x > 0.0 {
+        x * x.sqrt()
+    } else {
+        0.0
+    }
 });
 scalar_kernel!(scalar_power_general_f32, |x, power, _b| {
-    if x > 0.0 { (power * x.ln()).exp() } else { 0.0 }
+    if x > 0.0 {
+        (power * x.ln()).exp()
+    } else {
+        0.0
+    }
 });
 
 /// A short mean can lose a small addend even WITHOUT overflow (for example
@@ -2376,16 +3204,24 @@ scalar_kernel!(scalar_power_general_f32, |x, power, _b| {
 /// No tensor shape/dtype change or replay allocation is involved.
 unsafe fn mean_all_f32(cmd: &CpuCommand) {
     if cmd.k == 0 {
-        unsafe { *cmd.out = crate::tensor_light::CANONICAL_QUIET_NAN32; }
+        unsafe {
+            *cmd.out = crate::tensor_light::CANONICAL_QUIET_NAN32;
+        }
         return;
     }
     if cmd.k == 1 {
-        unsafe { *cmd.out = *cmd.a; }
+        unsafe {
+            *cmd.out = *cmd.a;
+        }
         return;
     }
     let mut sum64 = 0.0f64;
-    for i in 0..cmd.k { sum64 += f64::from(unsafe { *cmd.a.add(i) }); }
-    unsafe { *cmd.out = (sum64 / cmd.k as f64) as f32; }
+    for i in 0..cmd.k {
+        sum64 += f64::from(unsafe { *cmd.a.add(i) });
+    }
+    unsafe {
+        *cmd.out = (sum64 / cmd.k as f64) as f32;
+    }
 }
 /// Even three positive terms can lose a representable f32 result increment:
 /// [2^24, 1, 1] has exact L1 norm 2^24+2, not 2^24. Retain the direct f32
@@ -2393,15 +3229,23 @@ unsafe fn mean_all_f32(cmd: &CpuCommand) {
 unsafe fn l1_norm_all_f32(cmd: &CpuCommand) {
     if cmd.k <= 2 {
         let mut sum32 = 0.0f32;
-        for i in 0..cmd.k { sum32 += unsafe { (*cmd.a.add(i)).abs() }; }
+        for i in 0..cmd.k {
+            sum32 += unsafe { (*cmd.a.add(i)).abs() };
+        }
         if sum32.is_finite() {
-            unsafe { *cmd.out = sum32; }
+            unsafe {
+                *cmd.out = sum32;
+            }
             return;
         }
     }
     let mut sum64 = 0.0f64;
-    for i in 0..cmd.k { sum64 += f64::from(unsafe { (*cmd.a.add(i)).abs() }); }
-    unsafe { *cmd.out = sum64 as f32; }
+    for i in 0..cmd.k {
+        sum64 += f64::from(unsafe { (*cmd.a.add(i)).abs() });
+    }
+    unsafe {
+        *cmd.out = sum64 as f32;
+    }
 }
 /// The scaled-f32 recurrence may discard many small terms even in a SHORT
 /// vector (2048 ones alongside 65536 suffice). Use the historical fast
@@ -2415,17 +3259,25 @@ unsafe fn l2_norm_all_f32(cmd: &CpuCommand) {
         let mut has_inf = false;
         for i in 0..cmd.k {
             let x = unsafe { *cmd.a.add(i) };
-            if x.is_nan() { has_nan = true; }
-            else if x.is_infinite() { has_inf = true; }
-            else {
+            if x.is_nan() {
+                has_nan = true;
+            } else if x.is_infinite() {
+                has_inf = true;
+            } else {
                 let wide = f64::from(x);
                 squares64 += wide * wide;
             }
         }
-        let result = if has_nan { f32::NAN }
-            else if has_inf { f32::INFINITY }
-            else { squares64.sqrt() as f32 };
-        unsafe { *cmd.out = result; }
+        let result = if has_nan {
+            f32::NAN
+        } else if has_inf {
+            f32::INFINITY
+        } else {
+            squares64.sqrt() as f32
+        };
+        unsafe {
+            *cmd.out = result;
+        }
         return;
     }
     let mut scale = 0.0_f32;
@@ -2434,9 +3286,11 @@ unsafe fn l2_norm_all_f32(cmd: &CpuCommand) {
     let mut has_inf = false;
     for i in 0..cmd.k {
         let x = unsafe { (*cmd.a.add(i)).abs() };
-        if x.is_nan() { has_nan = true; }
-        else if x.is_infinite() { has_inf = true; }
-        else if x != 0.0 {
+        if x.is_nan() {
+            has_nan = true;
+        } else if x.is_infinite() {
+            has_inf = true;
+        } else if x != 0.0 {
             if scale < x {
                 let ratio = scale / x;
                 sumsq = 1.0 + sumsq * ratio * ratio;
@@ -2447,23 +3301,34 @@ unsafe fn l2_norm_all_f32(cmd: &CpuCommand) {
             }
         }
     }
-    let result = if has_nan { f32::NAN }
-        else if has_inf { f32::INFINITY }
-        else if scale == 0.0 { 0.0 }
-        else { scale * sumsq.sqrt() };
-    unsafe { *cmd.out = result; }
+    let result = if has_nan {
+        f32::NAN
+    } else if has_inf {
+        f32::INFINITY
+    } else if scale == 0.0 {
+        0.0
+    } else {
+        scale * sumsq.sqrt()
+    };
+    unsafe {
+        *cmd.out = result;
+    }
 }
 unsafe fn linf_norm_all_f32(cmd: &CpuCommand) {
     let mut max_abs = 0.0_f32;
     for i in 0..cmd.k {
         let value = unsafe { (*cmd.a.add(i)).abs() };
         if value.is_nan() {
-            unsafe { *cmd.out = f32::NAN; }
+            unsafe {
+                *cmd.out = f32::NAN;
+            }
             return;
         }
         max_abs = max_abs.max(value);
     }
-    unsafe { *cmd.out = max_abs; }
+    unsafe {
+        *cmd.out = max_abs;
+    }
 }
 
 /// One-pass population Welford moments with SCALAR f64 intermediates.
@@ -2475,7 +3340,9 @@ unsafe fn linf_norm_all_f32(cmd: &CpuCommand) {
 /// Nonfinite samples yield canonical NaN and empty moments are rejected at BIND.
 unsafe fn population_moment_f32(cmd: &CpuCommand, stddev: bool) {
     if cmd.k == 0 {
-        unsafe { *cmd.out = crate::tensor_light::CANONICAL_QUIET_NAN32; }
+        unsafe {
+            *cmd.out = crate::tensor_light::CANONICAL_QUIET_NAN32;
+        }
         return;
     }
     let mut mean = 0.0f64;
@@ -2483,7 +3350,9 @@ unsafe fn population_moment_f32(cmd: &CpuCommand, stddev: bool) {
     for i in 0..cmd.k {
         let sample = unsafe { *cmd.a.add(i) };
         if !sample.is_finite() {
-            unsafe { *cmd.out = crate::tensor_light::CANONICAL_QUIET_NAN32; }
+            unsafe {
+                *cmd.out = crate::tensor_light::CANONICAL_QUIET_NAN32;
+            }
             return;
         }
         let x = f64::from(sample);
@@ -2494,13 +3363,19 @@ unsafe fn population_moment_f32(cmd: &CpuCommand, stddev: bool) {
     // Clamp only harmless negative round-off: true population variance is >=0.
     let variance = (m2 / cmd.k as f64).max(0.0);
     let result = if stddev { variance.sqrt() } else { variance };
-    unsafe { *cmd.out = result as f32; }
+    unsafe {
+        *cmd.out = result as f32;
+    }
 }
 unsafe fn variance_population_all_f32(cmd: &CpuCommand) {
-    unsafe { population_moment_f32(cmd, false); }
+    unsafe {
+        population_moment_f32(cmd, false);
+    }
 }
 unsafe fn stddev_population_all_f32(cmd: &CpuCommand) {
-    unsafe { population_moment_f32(cmd, true); }
+    unsafe {
+        population_moment_f32(cmd, true);
+    }
 }
 
 /// Two-pass max-shifted LogSumExp. NaNs poison the reduction, an all
@@ -2514,13 +3389,17 @@ unsafe fn logsumexp_all_f32(cmd: &CpuCommand) {
     for i in 0..cmd.k {
         let value = unsafe { *cmd.a.add(i) };
         if value.is_nan() {
-            unsafe { *cmd.out = f32::NAN; }
+            unsafe {
+                *cmd.out = f32::NAN;
+            }
             return;
         }
         maximum = maximum.max(value);
     }
     if maximum.is_infinite() {
-        unsafe { *cmd.out = maximum; }
+        unsafe {
+            *cmd.out = maximum;
+        }
         return;
     }
     if cmd.k >= 4096 {
@@ -2528,13 +3407,17 @@ unsafe fn logsumexp_all_f32(cmd: &CpuCommand) {
         for i in 0..cmd.k {
             total64 += f64::from((unsafe { *cmd.a.add(i) } - maximum).exp());
         }
-        unsafe { *cmd.out = maximum + total64.ln() as f32; }
+        unsafe {
+            *cmd.out = maximum + total64.ln() as f32;
+        }
     } else {
         let mut total32 = 0.0f32;
         for i in 0..cmd.k {
             total32 += (unsafe { *cmd.a.add(i) } - maximum).exp();
         }
-        unsafe { *cmd.out = maximum + total32.ln(); }
+        unsafe {
+            *cmd.out = maximum + total32.ln();
+        }
     }
 }
 
@@ -2548,7 +3431,9 @@ unsafe fn minimum_all_f32(cmd: &CpuCommand) {
     for i in 1..cmd.k {
         best = crate::tensor_light::canonical_minimum(best, unsafe { *cmd.a.add(i) });
     }
-    unsafe { *cmd.out = best; }
+    unsafe {
+        *cmd.out = best;
+    }
 }
 unsafe fn maximum_all_f32(cmd: &CpuCommand) {
     debug_assert!(cmd.k > 0);
@@ -2557,7 +3442,9 @@ unsafe fn maximum_all_f32(cmd: &CpuCommand) {
     for i in 1..cmd.k {
         best = crate::tensor_light::canonical_maximum(best, unsafe { *cmd.a.add(i) });
     }
-    unsafe { *cmd.out = best; }
+    unsafe {
+        *cmd.out = best;
+    }
 }
 
 /// Translate one element of a GroupNorm channel partition to a global
@@ -2566,7 +3453,10 @@ unsafe fn maximum_all_f32(cmd: &CpuCommand) {
 /// dimensions; replay never allocates or reinterprets the dtype.
 #[inline]
 fn group_channel_offset(
-    position: usize, group: usize, axes: ArbitraryAxes, group_count: usize,
+    position: usize,
+    group: usize,
+    axes: ArbitraryAxes,
+    group_count: usize,
 ) -> usize {
     let channel_axis = axes.mask.trailing_zeros() as usize;
     let channels_per_group = axes.dims[channel_axis] / group_count;
@@ -2578,12 +3468,16 @@ fn group_channel_offset(
     for axis in (1..usize::from(axes.rank)).rev() {
         let local_extent = if axis == channel_axis {
             channels_per_group
-        } else { axes.dims[axis] };
+        } else {
+            axes.dims[axis]
+        };
         let coordinate = linear % local_extent;
         linear /= local_extent;
         let coordinate = if axis == channel_axis {
             channel_group * channels_per_group + coordinate
-        } else { coordinate };
+        } else {
+            coordinate
+        };
         offset += coordinate * stride;
         stride *= axes.dims[axis];
     }
@@ -2594,7 +3488,9 @@ fn group_channel_offset(
 /// Population GroupNorm for a non-leading physical channel axis.
 /// Contiguous-channel cases bind the faster normalize_suffix_f32::<0>.
 unsafe fn normalize_group_channels_f32(cmd: &CpuCommand) {
-    if cmd.len == 0 { return; }
+    if cmd.len == 0 {
+        return;
+    }
     let axes = cmd.arbitrary_axes.expect("group geometry bound at BIND");
     let epsilon = f64::from(cmd.scalar0);
     for group in 0..cmd.m {
@@ -2603,13 +3499,18 @@ unsafe fn normalize_group_channels_f32(cmd: &CpuCommand) {
         for position in 0..cmd.k {
             let offset = group_channel_offset(position, group, axes, cmd.n);
             let value = unsafe { *cmd.a.add(offset) };
-            if !value.is_finite() { finite = false; break; }
+            if !value.is_finite() {
+                finite = false;
+                break;
+            }
             sum += f64::from(value);
         }
         if !finite {
             for position in 0..cmd.k {
                 let offset = group_channel_offset(position, group, axes, cmd.n);
-                unsafe { *cmd.out.add(offset) = crate::tensor_light::CANONICAL_QUIET_NAN32; }
+                unsafe {
+                    *cmd.out.add(offset) = crate::tensor_light::CANONICAL_QUIET_NAN32;
+                }
             }
             continue;
         }
@@ -2624,7 +3525,9 @@ unsafe fn normalize_group_channels_f32(cmd: &CpuCommand) {
         for position in 0..cmd.k {
             let offset = group_channel_offset(position, group, axes, cmd.n);
             let value = f64::from(unsafe { *cmd.a.add(offset) });
-            unsafe { *cmd.out.add(offset) = ((value - mean) / denominator) as f32; }
+            unsafe {
+                *cmd.out.add(offset) = ((value - mean) / denominator) as f32;
+            }
         }
     }
 }
@@ -2637,7 +3540,9 @@ unsafe fn normalize_group_channels_f32(cmd: &CpuCommand) {
 /// accumulators use f64 for numerical stability, not any Tensor or ABI output.
 /// Nonfinite input poisons its *own* normalization group with canonical NaNs.
 unsafe fn normalize_suffix_f32<const KIND: u8>(cmd: &CpuCommand) {
-    if cmd.len == 0 { return; }
+    if cmd.len == 0 {
+        return;
+    }
     let count = cmd.k;
     let epsilon = cmd.scalar0 as f64;
     for group in 0..cmd.m {
@@ -2652,12 +3557,17 @@ unsafe fn normalize_suffix_f32<const KIND: u8>(cmd: &CpuCommand) {
                 break;
             }
             let x = f64::from(value);
-            if KIND == 0 { sum += x; }
-            else { sum_of_squares += x * x; }
+            if KIND == 0 {
+                sum += x;
+            } else {
+                sum_of_squares += x * x;
+            }
         }
         if has_nonfinite {
             for position in 0..count {
-                unsafe { *cmd.out.add(base + position) = crate::tensor_light::CANONICAL_QUIET_NAN32; }
+                unsafe {
+                    *cmd.out.add(base + position) = crate::tensor_light::CANONICAL_QUIET_NAN32;
+                }
             }
             continue;
         }
@@ -2668,13 +3578,18 @@ unsafe fn normalize_suffix_f32<const KIND: u8>(cmd: &CpuCommand) {
                 sum_of_squares += x * x;
             }
         }
-        let scale = if KIND == 2 { sum_of_squares + epsilon }
-                    else { sum_of_squares / count as f64 + epsilon };
+        let scale = if KIND == 2 {
+            sum_of_squares + epsilon
+        } else {
+            sum_of_squares / count as f64 + epsilon
+        };
         let denominator = scale.sqrt();
         for position in 0..count {
             let x = f64::from(unsafe { *cmd.a.add(base + position) });
             let numerator = if KIND == 0 { x - mean } else { x };
-            unsafe { *cmd.out.add(base + position) = (numerator / denominator) as f32; }
+            unsafe {
+                *cmd.out.add(base + position) = (numerator / denominator) as f32;
+            }
         }
     }
 }
@@ -2703,8 +3618,12 @@ fn arbitrary_axis_offset(mut index: usize, axes: ArbitraryAxes, selected: bool) 
 /// RMSNorm and L2Norm; suffix-normalization uses the faster direct kernel.
 /// Input/output buffers are validated disjoint and shape-equal at BIND.
 unsafe fn normalize_arbitrary_axes_f32<const KIND: u8>(cmd: &CpuCommand) {
-    if cmd.len == 0 { return; }
-    let axes = cmd.arbitrary_axes.expect("generic axis metadata must be bound");
+    if cmd.len == 0 {
+        return;
+    }
+    let axes = cmd
+        .arbitrary_axes
+        .expect("generic axis metadata must be bound");
     let epsilon = f64::from(cmd.scalar0);
     for group in 0..cmd.m {
         let group_base = arbitrary_axis_offset(group, axes, false);
@@ -2714,15 +3633,23 @@ unsafe fn normalize_arbitrary_axes_f32<const KIND: u8>(cmd: &CpuCommand) {
         for position in 0..cmd.k {
             let offset = group_base + arbitrary_axis_offset(position, axes, true);
             let value = unsafe { *cmd.a.add(offset) };
-            if !value.is_finite() { finite = false; break; }
+            if !value.is_finite() {
+                finite = false;
+                break;
+            }
             let value = f64::from(value);
-            if KIND == 0 { sum += value; }
-            else { sum_of_squares += value * value; }
+            if KIND == 0 {
+                sum += value;
+            } else {
+                sum_of_squares += value * value;
+            }
         }
         if !finite {
             for position in 0..cmd.k {
                 let offset = group_base + arbitrary_axis_offset(position, axes, true);
-                unsafe { *cmd.out.add(offset) = crate::tensor_light::CANONICAL_QUIET_NAN32; }
+                unsafe {
+                    *cmd.out.add(offset) = crate::tensor_light::CANONICAL_QUIET_NAN32;
+                }
             }
             continue;
         }
@@ -2734,14 +3661,19 @@ unsafe fn normalize_arbitrary_axes_f32<const KIND: u8>(cmd: &CpuCommand) {
                 sum_of_squares += x * x;
             }
         }
-        let scale = if KIND == 2 { sum_of_squares + epsilon }
-                    else { sum_of_squares / cmd.k as f64 + epsilon };
+        let scale = if KIND == 2 {
+            sum_of_squares + epsilon
+        } else {
+            sum_of_squares / cmd.k as f64 + epsilon
+        };
         let denom = scale.sqrt();
         for position in 0..cmd.k {
             let offset = group_base + arbitrary_axis_offset(position, axes, true);
             let x = f64::from(unsafe { *cmd.a.add(offset) });
             let numerator = if KIND == 0 { x - mean } else { x };
-            unsafe { *cmd.out.add(offset) = (numerator / denom) as f32; }
+            unsafe {
+                *cmd.out.add(offset) = (numerator / denom) as f32;
+            }
         }
     }
 }
@@ -2752,7 +3684,9 @@ unsafe fn normalize_arbitrary_axes_f32<const KIND: u8>(cmd: &CpuCommand) {
 /// probability mass equally (log-softmax reports -ln(count) at those positions).
 /// This policy is deliberate: naive (inf - inf) would otherwise create NaNs.
 unsafe fn softmax_axis_impl<const LOG: bool>(cmd: &CpuCommand) {
-    if cmd.len == 0 { return; }
+    if cmd.len == 0 {
+        return;
+    }
     let row_stride = cmd.k * cmd.n;
     for outer in 0..cmd.m {
         for inner in 0..cmd.n {
@@ -2761,12 +3695,19 @@ unsafe fn softmax_axis_impl<const LOG: bool>(cmd: &CpuCommand) {
             let mut nan_found = false;
             for position in 0..cmd.k {
                 let value = unsafe { *cmd.a.add(base + position * cmd.n) };
-                if value.is_nan() { nan_found = true; }
-                if value > maximum { maximum = value; }
+                if value.is_nan() {
+                    nan_found = true;
+                }
+                if value > maximum {
+                    maximum = value;
+                }
             }
             if nan_found || maximum == f32::NEG_INFINITY {
                 for position in 0..cmd.k {
-                    unsafe { *cmd.out.add(base + position * cmd.n) = crate::tensor_light::CANONICAL_QUIET_NAN32; }
+                    unsafe {
+                        *cmd.out.add(base + position * cmd.n) =
+                            crate::tensor_light::CANONICAL_QUIET_NAN32;
+                    }
                 }
                 continue;
             }
@@ -2777,12 +3718,21 @@ unsafe fn softmax_axis_impl<const LOG: bool>(cmd: &CpuCommand) {
                         count += 1;
                     }
                 }
-                let positive = if LOG { -(count as f32).ln() } else { 1.0 / count as f32 };
+                let positive = if LOG {
+                    -(count as f32).ln()
+                } else {
+                    1.0 / count as f32
+                };
                 let other = if LOG { f32::NEG_INFINITY } else { 0.0 };
                 for position in 0..cmd.k {
                     let value = unsafe { *cmd.a.add(base + position * cmd.n) };
-                    unsafe { *cmd.out.add(base + position * cmd.n) =
-                        if value == f32::INFINITY { positive } else { other }; }
+                    unsafe {
+                        *cmd.out.add(base + position * cmd.n) = if value == f32::INFINITY {
+                            positive
+                        } else {
+                            other
+                        };
+                    }
                 }
                 continue;
             }
@@ -2802,17 +3752,29 @@ unsafe fn softmax_axis_impl<const LOG: bool>(cmd: &CpuCommand) {
             for position in 0..cmd.k {
                 let offset = base + position * cmd.n;
                 let exponential = (unsafe { *cmd.a.add(offset) } - maximum).exp();
-                if wide_sum { total64 += f64::from(exponential); }
-                else { total32 += exponential; }
-                if !LOG { unsafe { *cmd.out.add(offset) = exponential; } }
+                if wide_sum {
+                    total64 += f64::from(exponential);
+                } else {
+                    total32 += exponential;
+                }
+                if !LOG {
+                    unsafe {
+                        *cmd.out.add(offset) = exponential;
+                    }
+                }
             }
             if LOG {
-                let normalization = if wide_sum { total64.ln() as f32 }
-                                    else { total32.ln() };
+                let normalization = if wide_sum {
+                    total64.ln() as f32
+                } else {
+                    total32.ln()
+                };
                 for position in 0..cmd.k {
                     let offset = base + position * cmd.n;
                     let x = unsafe { *cmd.a.add(offset) };
-                    unsafe { *cmd.out.add(offset) = x - maximum - normalization; }
+                    unsafe {
+                        *cmd.out.add(offset) = x - maximum - normalization;
+                    }
                 }
             } else if wide_sum {
                 // One reciprocal replaces an elementwise division on the long
@@ -2821,12 +3783,16 @@ unsafe fn softmax_axis_impl<const LOG: bool>(cmd: &CpuCommand) {
                 let inverse = (1.0f64 / total64) as f32;
                 for position in 0..cmd.k {
                     let offset = base + position * cmd.n;
-                    unsafe { *cmd.out.add(offset) *= inverse; }
+                    unsafe {
+                        *cmd.out.add(offset) *= inverse;
+                    }
                 }
             } else {
                 for position in 0..cmd.k {
                     let offset = base + position * cmd.n;
-                    unsafe { *cmd.out.add(offset) /= total32; }
+                    unsafe {
+                        *cmd.out.add(offset) /= total32;
+                    }
                 }
             }
         }
@@ -2834,10 +3800,14 @@ unsafe fn softmax_axis_impl<const LOG: bool>(cmd: &CpuCommand) {
 }
 
 unsafe fn softmax_axis_f32(cmd: &CpuCommand) {
-    unsafe { softmax_axis_impl::<false>(cmd); }
+    unsafe {
+        softmax_axis_impl::<false>(cmd);
+    }
 }
 unsafe fn log_softmax_axis_f32(cmd: &CpuCommand) {
-    unsafe { softmax_axis_impl::<true>(cmd); }
+    unsafe {
+        softmax_axis_impl::<true>(cmd);
+    }
 }
 
 /// Materialize a flip of a single axis or a consecutive block on an
@@ -2846,7 +3816,9 @@ unsafe fn log_softmax_axis_f32(cmd: &CpuCommand) {
 /// (outer, flattened_block, inner) geometry was checked at BIND. Bulk inner-axis
 /// chunks are copied in one contiguous operation; replay allocates nothing.
 unsafe fn flip_axis_f32(cmd: &CpuCommand) {
-    if cmd.len == 0 { return; }
+    if cmd.len == 0 {
+        return;
+    }
     let row_stride = cmd.k * cmd.n;
     for outer in 0..cmd.m {
         let row_base = outer * row_stride;
@@ -2856,9 +3828,7 @@ unsafe fn flip_axis_f32(cmd: &CpuCommand) {
             // SAFETY: bind checks total size, exact geometry and disjoint
             // physical inputs/outputs. Each chunk is within its owner span.
             unsafe {
-                ptr::copy_nonoverlapping(
-                    cmd.a.add(source), cmd.out.add(destination), cmd.n,
-                );
+                ptr::copy_nonoverlapping(cmd.a.add(source), cmd.out.add(destination), cmd.n);
             }
         }
     }
@@ -2869,8 +3839,12 @@ unsafe fn flip_axis_f32(cmd: &CpuCommand) {
 /// Reverse the logical coordinates without changing rank, dims, or any f32
 /// payload bits (including signed zero and noncanonical NaN payloads).
 unsafe fn flip_arbitrary_axes_f32(cmd: &CpuCommand) {
-    if cmd.len == 0 { return; }
-    let axes = cmd.arbitrary_axes.expect("generic axis metadata must be bound");
+    if cmd.len == 0 {
+        return;
+    }
+    let axes = cmd
+        .arbitrary_axes
+        .expect("generic axis metadata must be bound");
     for destination in 0..cmd.len {
         let mut coordinates = destination;
         let mut stride = 1usize;
@@ -2881,7 +3855,9 @@ unsafe fn flip_arbitrary_axes_f32(cmd: &CpuCommand) {
             coordinates /= dimension;
             let mapped = if (axes.mask & (1_u8 << axis)) != 0 {
                 dimension - 1 - coordinate
-            } else { coordinate };
+            } else {
+                coordinate
+            };
             source += mapped * stride;
             stride *= dimension;
         }
@@ -2899,7 +3875,9 @@ unsafe fn flip_arbitrary_axes_f32(cmd: &CpuCommand) {
 /// secondary comparison key so equal (including +/-0) values and all NaNs
 /// retain their source order. NaN placement is independent of sort direction.
 unsafe fn sort_values_axis_f32<const DESCENDING: bool, const NANS_FIRST: bool>(cmd: &CpuCommand) {
-    if cmd.len == 0 { return; }
+    if cmd.len == 0 {
+        return;
+    }
     // The binder allocated at least k items and retains the Vec allocation.
     // The bound backend executes its commands serially through &mut self.
     let scratch = unsafe { core::slice::from_raw_parts_mut(cmd.sort_scratch, cmd.k) };
@@ -2907,8 +3885,8 @@ unsafe fn sort_values_axis_f32<const DESCENDING: bool, const NANS_FIRST: bool>(c
     for outer in 0..cmd.m {
         for inner in 0..cmd.n {
             let base = outer * row_stride + inner;
-            for position in 0..cmd.k {
-                scratch[position] = SortRecord {
+            for (position, record) in scratch.iter_mut().enumerate() {
+                *record = SortRecord {
                     bits: unsafe { (*cmd.a.add(base + position * cmd.n)).to_bits() },
                     ordinal: position,
                 };
@@ -2918,22 +3896,35 @@ unsafe fn sort_values_axis_f32<const DESCENDING: bool, const NANS_FIRST: bool>(c
                 let b = f32::from_bits(right.bits);
                 let ordering = match (a.is_nan(), b.is_nan()) {
                     (true, true) => core::cmp::Ordering::Equal,
-                    (true, false) => if NANS_FIRST {
-                        core::cmp::Ordering::Less
-                    } else { core::cmp::Ordering::Greater },
-                    (false, true) => if NANS_FIRST {
-                        core::cmp::Ordering::Greater
-                    } else { core::cmp::Ordering::Less },
+                    (true, false) => {
+                        if NANS_FIRST {
+                            core::cmp::Ordering::Less
+                        } else {
+                            core::cmp::Ordering::Greater
+                        }
+                    }
+                    (false, true) => {
+                        if NANS_FIRST {
+                            core::cmp::Ordering::Greater
+                        } else {
+                            core::cmp::Ordering::Less
+                        }
+                    }
                     (false, false) => {
                         let result = a.partial_cmp(&b).unwrap_or(core::cmp::Ordering::Equal);
-                        if DESCENDING { result.reverse() } else { result }
-                    },
+                        if DESCENDING {
+                            result.reverse()
+                        } else {
+                            result
+                        }
+                    }
                 };
                 ordering.then_with(|| left.ordinal.cmp(&right.ordinal))
             });
-            for position in 0..cmd.k {
-                unsafe { *cmd.out.add(base + position * cmd.n) =
-                    f32::from_bits(scratch[position].bits); }
+            for (position, record) in scratch.iter().enumerate() {
+                unsafe {
+                    *cmd.out.add(base + position * cmd.n) = f32::from_bits(record.bits);
+                }
             }
         }
     }
@@ -2942,10 +3933,18 @@ unsafe fn sort_values_axis_f32<const DESCENDING: bool, const NANS_FIRST: bool>(c
 /// Numerically stable two-term logaddexp. No double-precision Tensor is made.
 #[inline]
 fn scan_logaddexp(left: f32, right: f32) -> f32 {
-    if left.is_nan() || right.is_nan() { return crate::tensor_light::CANONICAL_QUIET_NAN32; }
-    if left == f32::NEG_INFINITY { return right; }
-    if right == f32::NEG_INFINITY { return left; }
-    if left == f32::INFINITY || right == f32::INFINITY { return f32::INFINITY; }
+    if left.is_nan() || right.is_nan() {
+        return crate::tensor_light::CANONICAL_QUIET_NAN32;
+    }
+    if left == f32::NEG_INFINITY {
+        return right;
+    }
+    if right == f32::NEG_INFINITY {
+        return left;
+    }
+    if left == f32::INFINITY || right == f32::INFINITY {
+        return f32::INFINITY;
+    }
     let high = left.max(right);
     high + (-(left - right).abs()).exp().ln_1p()
 }
@@ -2954,55 +3953,96 @@ fn scan_logaddexp(left: f32, right: f32) -> f32 {
 /// a hot dynamic dispatch. 0=sum, 1=product, 2=min, 3=max, 4=logsumexp.
 /// Exclusive prefix is admissible only for KIND=0 (the canonical IR rule).
 unsafe fn scan_axis_f32<const KIND: u8, const INCLUSIVE: bool>(cmd: &CpuCommand) {
-    if cmd.len == 0 { return; }
+    if cmd.len == 0 {
+        return;
+    }
     let row_stride = cmd.k * cmd.n;
     for outer in 0..cmd.m {
         for inner in 0..cmd.n {
             let base = outer * row_stride + inner;
-            let mut accumulator = if KIND == 0 { 0.0_f32 }
-                else if KIND == 1 { 1.0_f32 }
-                else if KIND == 4 || KIND == 3 { f32::NEG_INFINITY }
-                else { f32::INFINITY };
+            let mut accumulator = if KIND == 0 {
+                0.0_f32
+            } else if KIND == 1 {
+                1.0_f32
+            } else if KIND == 4 || KIND == 3 {
+                f32::NEG_INFINITY
+            } else {
+                f32::INFINITY
+            };
             for position in 0..cmd.k {
                 let offset = base + position * cmd.n;
                 let value = unsafe { *cmd.a.add(offset) };
-                if !INCLUSIVE { unsafe { *cmd.out.add(offset) = accumulator; } }
+                if !INCLUSIVE {
+                    unsafe {
+                        *cmd.out.add(offset) = accumulator;
+                    }
+                }
                 accumulator = if position == 0 && INCLUSIVE {
-                    if KIND == 2 { crate::tensor_light::canonical_minimum(value, value) }
-                    else if KIND == 3 { crate::tensor_light::canonical_maximum(value, value) }
-                    else { value }
-                } else if KIND == 0 { accumulator + value }
-                else if KIND == 1 { accumulator * value }
-                else if KIND == 2 { crate::tensor_light::canonical_minimum(accumulator, value) }
-                else if KIND == 3 { crate::tensor_light::canonical_maximum(accumulator, value) }
-                else { scan_logaddexp(accumulator, value) };
+                    if KIND == 2 {
+                        crate::tensor_light::canonical_minimum(value, value)
+                    } else if KIND == 3 {
+                        crate::tensor_light::canonical_maximum(value, value)
+                    } else {
+                        value
+                    }
+                } else if KIND == 0 {
+                    accumulator + value
+                } else if KIND == 1 {
+                    accumulator * value
+                } else if KIND == 2 {
+                    crate::tensor_light::canonical_minimum(accumulator, value)
+                } else if KIND == 3 {
+                    crate::tensor_light::canonical_maximum(accumulator, value)
+                } else {
+                    scan_logaddexp(accumulator, value)
+                };
                 // Preserve the project's canonical NaN-result contract even
                 // for a first-prefix source NaN with a noncanonical payload,
                 // or for a later inf+(-inf) invalid arithmetic result.
-                if accumulator.is_nan() { accumulator = crate::tensor_light::CANONICAL_QUIET_NAN32; }
-                if INCLUSIVE { unsafe { *cmd.out.add(offset) = accumulator; } }
+                if accumulator.is_nan() {
+                    accumulator = crate::tensor_light::CANONICAL_QUIET_NAN32;
+                }
+                if INCLUSIVE {
+                    unsafe {
+                        *cmd.out.add(offset) = accumulator;
+                    }
+                }
             }
         }
     }
 }
 
 unsafe fn gemm_dot_f32(cmd: &CpuCommand) {
-    if cmd.len == 0 { return; }
+    if cmd.len == 0 {
+        return;
+    }
     for row in 0..cmd.m {
         for col in 0..cmd.n {
             let mut sum = 0.0_f32;
             for p in 0..cmd.k {
-                let ai = if cmd.lhs_vector { p } else if cmd.transpose_lhs {
+                let ai = if cmd.lhs_vector {
+                    p
+                } else if cmd.transpose_lhs {
                     p * cmd.m + row
-                } else { row * cmd.k + p };
-                let bi = if cmd.rhs_vector { p } else if cmd.transpose_rhs {
+                } else {
+                    row * cmd.k + p
+                };
+                let bi = if cmd.rhs_vector {
+                    p
+                } else if cmd.transpose_rhs {
                     col * cmd.k + p
-                } else { p * cmd.n + col };
+                } else {
+                    p * cmd.n + col
+                };
                 // SAFETY: compatible rank-1/2 dimensions and C-order spans
                 // were checked before producing this immutable command.
-                unsafe { sum += *cmd.a.add(ai) * *cmd.b.add(bi); }
+                unsafe {
+                    sum += *cmd.a.add(ai) * *cmd.b.add(bi);
+                }
             }
-            unsafe { *cmd.out.add(row * cmd.n + col) = sum; }
+            unsafe {
+                *cmd.out.add(row * cmd.n + col) = sum;
+            }
         }
     }
 }
@@ -3010,16 +4050,22 @@ unsafe fn gemm_dot_f32(cmd: &CpuCommand) {
 /// AXPY-style outer accumulation improves contiguous-B locality. Reduction
 /// order along K is unchanged (0..K), with no approximate math.
 unsafe fn gemm_axpy_f32(cmd: &CpuCommand) {
-    if cmd.len == 0 { return; }
+    if cmd.len == 0 {
+        return;
+    }
     for i in 0..cmd.m * cmd.n {
-        unsafe { *cmd.out.add(i) = 0.0; }
+        unsafe {
+            *cmd.out.add(i) = 0.0;
+        }
     }
     for row in 0..cmd.m {
         for p in 0..cmd.k {
             let a = unsafe { *cmd.a.add(row * cmd.k + p) };
             for col in 0..cmd.n {
                 let c = unsafe { cmd.out.add(row * cmd.n + col) };
-                unsafe { *c += a * *cmd.b.add(p * cmd.n + col); }
+                unsafe {
+                    *c += a * *cmd.b.add(p * cmd.n + col);
+                }
             }
         }
     }
@@ -3027,16 +4073,24 @@ unsafe fn gemm_axpy_f32(cmd: &CpuCommand) {
 
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
-unsafe fn add_avx2(cmd: &CpuCommand) { unsafe { binary_avx2::<0>(cmd) } }
+unsafe fn add_avx2(cmd: &CpuCommand) {
+    unsafe { binary_avx2::<0>(cmd) }
+}
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
-unsafe fn sub_avx2(cmd: &CpuCommand) { unsafe { binary_avx2::<1>(cmd) } }
+unsafe fn sub_avx2(cmd: &CpuCommand) {
+    unsafe { binary_avx2::<1>(cmd) }
+}
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
-unsafe fn mul_avx2(cmd: &CpuCommand) { unsafe { binary_avx2::<2>(cmd) } }
+unsafe fn mul_avx2(cmd: &CpuCommand) {
+    unsafe { binary_avx2::<2>(cmd) }
+}
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
-unsafe fn div_avx2(cmd: &CpuCommand) { unsafe { binary_avx2::<3>(cmd) } }
+unsafe fn div_avx2(cmd: &CpuCommand) {
+    unsafe { binary_avx2::<3>(cmd) }
+}
 
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
@@ -3044,20 +4098,34 @@ unsafe fn binary_avx2<const OP: u8>(cmd: &CpuCommand) {
     use std::arch::x86_64::*;
     let mut i = 0usize;
     while cmd.len - i >= 8 {
-        let (x,y) = unsafe { (_mm256_loadu_ps(cmd.a.add(i)), _mm256_loadu_ps(cmd.b.add(i))) };
-        let v = if OP == 0 { _mm256_add_ps(x,y) }
-            else if OP == 1 { _mm256_sub_ps(x,y) }
-            else if OP == 2 { _mm256_mul_ps(x,y) }
-            else { _mm256_div_ps(x,y) };
-        unsafe { _mm256_storeu_ps(cmd.out.add(i),v); }
+        let (x, y) = unsafe { (_mm256_loadu_ps(cmd.a.add(i)), _mm256_loadu_ps(cmd.b.add(i))) };
+        let v = if OP == 0 {
+            _mm256_add_ps(x, y)
+        } else if OP == 1 {
+            _mm256_sub_ps(x, y)
+        } else if OP == 2 {
+            _mm256_mul_ps(x, y)
+        } else {
+            _mm256_div_ps(x, y)
+        };
+        unsafe {
+            _mm256_storeu_ps(cmd.out.add(i), v);
+        }
         i += 8;
     }
     while i < cmd.len {
         unsafe {
             let a = *cmd.a.add(i);
             let b = *cmd.b.add(i);
-            *cmd.out.add(i) = if OP == 0 { a+b } else if OP == 1 { a-b }
-                else if OP == 2 { a*b } else { a/b };
+            *cmd.out.add(i) = if OP == 0 {
+                a + b
+            } else if OP == 1 {
+                a - b
+            } else if OP == 2 {
+                a * b
+            } else {
+                a / b
+            };
         }
         i += 1;
     }
@@ -3066,7 +4134,9 @@ unsafe fn binary_avx2<const OP: u8>(cmd: &CpuCommand) {
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 unsafe fn gemm_avx2(cmd: &CpuCommand) {
-    if cmd.len == 0 { return; }
+    if cmd.len == 0 {
+        return;
+    }
     use std::arch::x86_64::*;
     // Keep one 8-lane accumulator in a register for the complete K reduction.
     // The previous implementation loaded and stored each output vector for
@@ -3081,7 +4151,9 @@ unsafe fn gemm_avx2(cmd: &CpuCommand) {
                 let b = unsafe { _mm256_loadu_ps(cmd.b.add(p * cmd.n + col)) };
                 acc = _mm256_add_ps(acc, _mm256_mul_ps(a, b));
             }
-            unsafe { _mm256_storeu_ps(cmd.out.add(row * cmd.n + col), acc); }
+            unsafe {
+                _mm256_storeu_ps(cmd.out.add(row * cmd.n + col), acc);
+            }
             col += 8;
         }
         // Odd column tails use the same scalar reduction order as the strict
@@ -3089,9 +4161,13 @@ unsafe fn gemm_avx2(cmd: &CpuCommand) {
         while col < cmd.n {
             let mut acc = 0.0_f32;
             for p in 0..cmd.k {
-                unsafe { acc += *cmd.a.add(row * cmd.k + p) * *cmd.b.add(p * cmd.n + col); }
+                unsafe {
+                    acc += *cmd.a.add(row * cmd.k + p) * *cmd.b.add(p * cmd.n + col);
+                }
             }
-            unsafe { *cmd.out.add(row * cmd.n + col) = acc; }
+            unsafe {
+                *cmd.out.add(row * cmd.n + col) = acc;
+            }
             col += 1;
         }
     }
@@ -3100,37 +4176,57 @@ unsafe fn gemm_avx2(cmd: &CpuCommand) {
 #[inline(always)]
 fn add_entry_avx2() -> unsafe fn(&CpuCommand) {
     #[cfg(target_arch = "x86_64")]
-    { add_avx2 }
+    {
+        add_avx2
+    }
     #[cfg(not(target_arch = "x86_64"))]
-    { add_f32 }
+    {
+        add_f32
+    }
 }
 #[inline(always)]
 fn sub_entry_avx2() -> unsafe fn(&CpuCommand) {
     #[cfg(target_arch = "x86_64")]
-    { sub_avx2 }
+    {
+        sub_avx2
+    }
     #[cfg(not(target_arch = "x86_64"))]
-    { sub_f32 }
+    {
+        sub_f32
+    }
 }
 #[inline(always)]
 fn mul_entry_avx2() -> unsafe fn(&CpuCommand) {
     #[cfg(target_arch = "x86_64")]
-    { mul_avx2 }
+    {
+        mul_avx2
+    }
     #[cfg(not(target_arch = "x86_64"))]
-    { mul_f32 }
+    {
+        mul_f32
+    }
 }
 #[inline(always)]
 fn div_entry_avx2() -> unsafe fn(&CpuCommand) {
     #[cfg(target_arch = "x86_64")]
-    { div_avx2 }
+    {
+        div_avx2
+    }
     #[cfg(not(target_arch = "x86_64"))]
-    { div_f32 }
+    {
+        div_f32
+    }
 }
 #[inline(always)]
 fn gemm_entry_avx2() -> unsafe fn(&CpuCommand) {
     #[cfg(target_arch = "x86_64")]
-    { gemm_avx2 }
+    {
+        gemm_avx2
+    }
     #[cfg(not(target_arch = "x86_64"))]
-    { gemm_dot_f32 }
+    {
+        gemm_dot_f32
+    }
 }
 
 #[cfg(test)]

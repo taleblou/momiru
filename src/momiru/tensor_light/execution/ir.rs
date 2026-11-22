@@ -133,18 +133,15 @@
 
 use core::hash::{Hash, Hasher};
 
-use crate::tensor_light::tensor::{DType, MAX_RANK};
 use super::target::{gpu_feature, HardwareContract};
 use super::{stable_hash_pair, PlanError, StableIdentityHasher};
+use crate::tensor_light::tensor::{DType, MAX_RANK};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct PlanKey {
     pub signature_hi: u64,
     pub signature_lo: u64,
 }
-
-
-
 
 // =============================================================================
 // Canonical static tensor/dataflow descriptors
@@ -187,28 +184,60 @@ impl StaticShape {
         match self {
             Self::Rank0 => None,
             Self::Rank1(d) => {
-                if axis < 1 { Some(d[axis]) } else { None }
+                if axis < 1 {
+                    Some(d[axis])
+                } else {
+                    None
+                }
             }
             Self::Rank2(d) => {
-                if axis < 2 { Some(d[axis]) } else { None }
+                if axis < 2 {
+                    Some(d[axis])
+                } else {
+                    None
+                }
             }
             Self::Rank3(d) => {
-                if axis < 3 { Some(d[axis]) } else { None }
+                if axis < 3 {
+                    Some(d[axis])
+                } else {
+                    None
+                }
             }
             Self::Rank4(d) => {
-                if axis < 4 { Some(d[axis]) } else { None }
+                if axis < 4 {
+                    Some(d[axis])
+                } else {
+                    None
+                }
             }
             Self::Rank5(d) => {
-                if axis < 5 { Some(d[axis]) } else { None }
+                if axis < 5 {
+                    Some(d[axis])
+                } else {
+                    None
+                }
             }
             Self::Rank6(d) => {
-                if axis < 6 { Some(d[axis]) } else { None }
+                if axis < 6 {
+                    Some(d[axis])
+                } else {
+                    None
+                }
             }
             Self::Rank7(d) => {
-                if axis < 7 { Some(d[axis]) } else { None }
+                if axis < 7 {
+                    Some(d[axis])
+                } else {
+                    None
+                }
             }
             Self::Rank8(d) => {
-                if axis < 8 { Some(d[axis]) } else { None }
+                if axis < 8 {
+                    Some(d[axis])
+                } else {
+                    None
+                }
             }
         }
     }
@@ -216,7 +245,9 @@ impl StaticShape {
     pub fn element_count(&self) -> Option<usize> {
         // Empty shapes have zero elements regardless of oversized nonzero axes.
         for axis in 0..self.rank() {
-            if self.dim(axis)? == 0 { return Some(0); }
+            if self.dim(axis)? == 0 {
+                return Some(0);
+            }
         }
         let mut count = 1usize;
         let mut axis = 0usize;
@@ -234,7 +265,9 @@ impl StaticShape {
     /// Empty logical shapes are zero bytes before multiplying large extents.
     pub fn byte_count(&self, dtype: DType) -> Option<usize> {
         let bytes = dtype.packed_byte_count(self.element_count()?)?;
-        if bytes > isize::MAX as usize { return None; }
+        if bytes > isize::MAX as usize {
+            return None;
+        }
         Some(bytes)
     }
 }
@@ -245,10 +278,15 @@ impl StaticShape {
 /// runtime scheduling, allocation or kernel selection.
 #[inline(always)]
 pub(crate) const fn canonical_broadcast_extent(lhs: usize, rhs: usize) -> Option<usize> {
-    if lhs == rhs { Some(lhs) }
-    else if lhs == 1 { Some(rhs) }
-    else if rhs == 1 { Some(lhs) }
-    else { None }
+    if lhs == rhs {
+        Some(lhs)
+    } else if lhs == 1 {
+        Some(rhs)
+    } else if rhs == 1 {
+        Some(lhs)
+    } else {
+        None
+    }
 }
 
 /// Canonical compact descriptor for standard trailing-axis broadcasting.
@@ -270,7 +308,10 @@ pub fn canonical_elementwise_broadcast_signature(
     // their inputs. A separately named Broadcast/Expand view can enlarge a
     // singleton; elementwise arithmetic itself must NEVER manufacture an
     // arbitrary larger result, a fake leading axis or a nonempty 0-vs-1 axis.
-    let expected_rank = input_shapes.iter().map(StaticShape::rank).max()
+    let expected_rank = input_shapes
+        .iter()
+        .map(StaticShape::rank)
+        .max()
         .ok_or(PlanError::InvalidOperationSpec)?;
     if output_rank != expected_rank {
         return Err(PlanError::InvalidOperationSpec);
@@ -281,7 +322,8 @@ pub fn canonical_elementwise_broadcast_signature(
             let source = if axis + input.rank() < output_rank {
                 1usize
             } else {
-                input.dim(axis + input.rank() - output_rank)
+                input
+                    .dim(axis + input.rank() - output_rank)
                     .ok_or(PlanError::InvalidOperationSpec)?
             };
             required = canonical_broadcast_extent(required, source)
@@ -314,7 +356,9 @@ pub fn canonical_elementwise_broadcast_signature(
         let leading = output_rank - input_rank;
         let mut output_axis = 0usize;
         while output_axis < output_rank {
-            let output_dim = output.dim(output_axis).ok_or(PlanError::InvalidOperationSpec)?;
+            let output_dim = output
+                .dim(output_axis)
+                .ok_or(PlanError::InvalidOperationSpec)?;
             let broadcast = if output_axis < leading {
                 true
             } else {
@@ -405,8 +449,12 @@ impl TensorLayout {
 
         // Empty C/F mappings are vacuously contiguous and have no physical
         // elements; do not reject solely due to stride-product overflow.
-        if shape.element_count() == Some(0) && matches!(self.kind,
-            LayoutKind::RowMajorContiguous | LayoutKind::ColumnMajorContiguous) {
+        if shape.element_count() == Some(0)
+            && matches!(
+                self.kind,
+                LayoutKind::RowMajorContiguous | LayoutKind::ColumnMajorContiguous
+            )
+        {
             return Ok(());
         }
         match self.kind {
@@ -466,12 +514,14 @@ impl TensorLayout {
                 }
                 let mut expected = 1isize;
                 for &axis in physical_fast_to_slow {
-                    let dim = isize::try_from(shape.dim(axis).ok_or(PlanError::InvalidTensorLayout)?)
-                        .map_err(|_| PlanError::InvalidTensorLayout)?;
+                    let dim =
+                        isize::try_from(shape.dim(axis).ok_or(PlanError::InvalidTensorLayout)?)
+                            .map_err(|_| PlanError::InvalidTensorLayout)?;
                     if dim > 1 && self.strides[axis] != expected {
                         return Err(PlanError::InvalidTensorLayout);
                     }
-                    expected = expected.checked_mul(dim)
+                    expected = expected
+                        .checked_mul(dim)
                         .ok_or(PlanError::InvalidTensorLayout)?;
                 }
             }
@@ -501,12 +551,9 @@ impl TensorLayout {
     /// An unknown cardinality is rejected by callers' existing byte-count
     /// guards; it is not treated as an empty descriptor here.
     #[inline]
-    pub fn validate_for_dtype(
-        &self, shape: &StaticShape, dtype: DType,
-    ) -> Result<(), PlanError> {
+    pub fn validate_for_dtype(&self, shape: &StaticShape, dtype: DType) -> Result<(), PlanError> {
         self.validate_for(shape)?;
-        if shape.element_count() != Some(0)
-            && (self.alignment_bytes as usize) < dtype.size_bytes()
+        if shape.element_count() != Some(0) && (self.alignment_bytes as usize) < dtype.size_bytes()
         {
             return Err(PlanError::InvalidTensorAlignment);
         }
@@ -518,16 +565,14 @@ impl TensorLayout {
     /// same bounded (rank <= 8) structural validation contract.
     #[inline(always)]
     pub fn is_row_major_contiguous_for(&self, shape: &StaticShape) -> bool {
-        self.kind == LayoutKind::RowMajorContiguous
-            && self.validate_for(shape).is_ok()
+        self.kind == LayoutKind::RowMajorContiguous && self.validate_for(shape).is_ok()
     }
 
     /// Column-major query with exactly the same strict metadata checks as
     /// the authoritative layout validator, including empty and singleton axes.
     #[inline(always)]
     pub fn is_column_major_contiguous_for(&self, shape: &StaticShape) -> bool {
-        self.kind == LayoutKind::ColumnMajorContiguous
-            && self.validate_for(shape).is_ok()
+        self.kind == LayoutKind::ColumnMajorContiguous && self.validate_for(shape).is_ok()
     }
 
     #[inline(always)]
@@ -657,7 +702,6 @@ pub struct QuantizationSpec {
     pub zero_point_tensor: Option<TensorId>,
 }
 
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum TensorRole {
@@ -746,8 +790,6 @@ pub enum OpCode {
     Custom,
 }
 
-
-
 /// Fixed-size axis list used by canonical operation descriptors.
 /// Only the first `len` entries are meaningful.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -759,7 +801,10 @@ pub struct AxisList {
 impl AxisList {
     #[inline(always)]
     pub const fn empty() -> Self {
-        Self { len: 0, axes: [0; MAX_RANK] }
+        Self {
+            len: 0,
+            axes: [0; MAX_RANK],
+        }
     }
 
     pub fn validate(self) -> Result<(), PlanError> {
@@ -847,9 +892,15 @@ impl AxisSelector {
     }
 
     pub fn selection_mask(self, rank: usize) -> Result<u8, PlanError> {
-        if rank > MAX_RANK { return Err(PlanError::InvalidOperationSpec); }
+        if rank > MAX_RANK {
+            return Err(PlanError::InvalidOperationSpec);
+        }
         match self {
-            Self::All => Ok(if rank == 8 { u8::MAX } else { ((1u16 << rank) - 1) as u8 }),
+            Self::All => Ok(if rank == 8 {
+                u8::MAX
+            } else {
+                ((1u16 << rank) - 1) as u8
+            }),
             Self::Explicit(mask) => {
                 mask.validate_for_rank(rank)?;
                 Ok(mask.0)
@@ -1063,7 +1114,6 @@ pub enum ReductionKind {
     AllPositive,
 }
 
-
 /// The exact semantic identity for an *evaluated* empty reduction slice.
 /// This is a typed scalar/auxiliary-mask contract, NOT another Tensor dtype
 /// or permission to execute a bulk reduction outside a frozen UASDEA plan.
@@ -1084,14 +1134,14 @@ impl ReductionKind {
     #[inline(always)]
     pub const fn empty_reduction_identity(self) -> Option<EmptyReductionIdentity> {
         match self {
-            Self::Sum | Self::CountNonZero =>
-                Some(EmptyReductionIdentity::F32Bits(0x0000_0000)), // +0.0f32
-            Self::Product =>
-                Some(EmptyReductionIdentity::F32Bits(0x3f80_0000)), // +1.0f32
-            Self::Any | Self::AnyNonZero | Self::AnyPositive =>
-                Some(EmptyReductionIdentity::MaskByte(0)), // logical false
-            Self::All | Self::AllNonZero | Self::AllPositive =>
-                Some(EmptyReductionIdentity::MaskByte(1)), // logical true
+            Self::Sum | Self::CountNonZero => Some(EmptyReductionIdentity::F32Bits(0x0000_0000)), // +0.0f32
+            Self::Product => Some(EmptyReductionIdentity::F32Bits(0x3f80_0000)), // +1.0f32
+            Self::Any | Self::AnyNonZero | Self::AnyPositive => {
+                Some(EmptyReductionIdentity::MaskByte(0))
+            } // logical false
+            Self::All | Self::AllNonZero | Self::AllPositive => {
+                Some(EmptyReductionIdentity::MaskByte(1))
+            } // logical true
             _ => None,
         }
     }
@@ -1432,7 +1482,9 @@ pub enum Operation {
     /// than allowing backend-dependent conversion behavior.
     Cast,
     Reshape,
-    Transpose { permutation: AxisList },
+    Transpose {
+        permutation: AxisList,
+    },
     /// Standard right-aligned broadcast/expand. A frozen mapping may keep this
     /// as a zero-stride alias instead of materializing.
     Expand,
@@ -1442,11 +1494,17 @@ pub enum Operation {
     Narrow(NarrowSpec),
     /// Reverse one or more axes. Physical mappings may encode this with signed
     /// strides and a shifted base offset, or benchmark a materialized kernel.
-    Flip { axes: AxisList },
+    Flip {
+        axes: AxisList,
+    },
     /// Concatenate same-rank tensors along one existing axis.
-    Concat { axis: u8 },
+    Concat {
+        axis: u8,
+    },
     /// Insert a new axis and stack equal-shaped inputs along it.
-    Stack { axis: u8 },
+    Stack {
+        axis: u8,
+    },
     Pad(PadSpec),
     Resample2d(Resample2dSpec),
     SlidingWindow1d(SlidingWindow1dSpec),
@@ -1455,25 +1513,43 @@ pub enum Operation {
     /// and inserted positions are exact +0.0f32. Empty inputs produce empty
     /// output, and n=1 or f=1 are semantic identities. Every case still
     /// requires an explicitly published frozen graph/alias/copy effect.
-    ZeroInsert1d { factor: u32 },
+    ZeroInsert1d {
+        factor: u32,
+    },
     Tile(TileSpec),
     RepeatInterleave(RepeatInterleaveSpec),
-    Elementwise { kind: ElementwiseKind, arity: u8, broadcast_signature: u64 },
+    Elementwise {
+        kind: ElementwiseKind,
+        arity: u8,
+        broadcast_signature: u64,
+    },
     ScalarElementwise(ScalarElementwiseSpec),
     /// Ternary mask select with standard trailing-axis broadcasting. Inputs are
     /// `[condition_mask, true_value, false_value]`; any non-zero mask byte selects
     /// the true input.
-    Select { broadcast_signature: u64 },
-    Reduction { kind: ReductionKind, axes: AxisSelector, keep_dims: bool },
+    Select {
+        broadcast_signature: u64,
+    },
+    Reduction {
+        kind: ReductionKind,
+        axes: AxisSelector,
+        keep_dims: bool,
+    },
     /// NumPy-style matmul with static broadcasting over leading batch axes.
     /// Rank-1 operands use vector semantics: 1D x 1D -> scalar, 1D x ND ->
     /// the promoted leading matrix dimension is removed, and ND x 1D -> the
     /// promoted trailing matrix dimension is removed. Transpose flags are
     /// invalid for the corresponding rank-1 operand.
-    MatMul { transpose_lhs: bool, transpose_rhs: bool },
+    MatMul {
+        transpose_lhs: bool,
+        transpose_rhs: bool,
+    },
     FourierTransform(FourierTransformSpec),
     DenseLinearAlgebra(DenseLinalgSpec),
-    TensorContract { lhs_axes: AxisList, rhs_axes: AxisList },
+    TensorContract {
+        lhs_axes: AxisList,
+        rhs_axes: AxisList,
+    },
     Convolution(ConvolutionSpec),
     Attention(AttentionSpec),
     Collective(CollectiveSpec),
@@ -1481,7 +1557,9 @@ pub enum Operation {
     /// Indices are zero-based, non-negative and must be in range on every
     /// successful replay. Kernels for this operation may not rely on
     /// `unchecked_indexing` because index values are runtime data.
-    Gather { axis: u8 },
+    Gather {
+        axis: u8,
+    },
     /// Uses the same zero-based/in-range index contract as Gather. A rank-0
     /// values tensor is broadcast over every selected element; otherwise the
     /// values shape equals the base shape with the scatter axis replaced by
@@ -1490,11 +1568,17 @@ pub enum Operation {
     Scatter(ScatterSpec),
     Pooling(PoolingSpec),
     /// Softmax or log-softmax over one exact logical axis.
-    Softmax { axis: u8, log: bool },
+    Softmax {
+        axis: u8,
+        log: bool,
+    },
     Scan(ScanSpec),
     Sort(SortSpec),
     TopK(TopKSpec),
-    Custom { semantic_signature_hi: u64, semantic_signature_lo: u64 },
+    Custom {
+        semantic_signature_hi: u64,
+        semantic_signature_lo: u64,
+    },
 }
 
 impl Operation {
@@ -1822,7 +1906,10 @@ impl Operation {
                     1,
                 )
             }
-            Self::Custom { semantic_signature_hi, semantic_signature_lo } => {
+            Self::Custom {
+                semantic_signature_hi,
+                semantic_signature_lo,
+            } => {
                 if semantic_signature_hi == 0 && semantic_signature_lo == 0 {
                     Err(PlanError::InvalidOperationSpec)
                 } else {
@@ -1869,10 +1956,7 @@ impl Operation {
             // Re-enable ONLY alongside a versioned, AOT-frozen validator and
             // corresponding CPU/GPU/partial-submission error tests.
             Self::Gather { .. } | Self::Scatter(_) => Err(PlanError::UnsealedIndexPreflight),
-            Self::Copy
-            | Self::Reshape
-            | Self::MatMul { .. }
-            | Self::Softmax { .. } => Ok(()),
+            Self::Copy | Self::Reshape | Self::MatMul { .. } | Self::Softmax { .. } => Ok(()),
         }
     }
 }
@@ -1913,7 +1997,6 @@ fn validate_spatial(
     }
     Ok(())
 }
-
 
 // =============================================================================
 // Canonical workload and exact identity
@@ -2039,7 +2122,10 @@ impl WorkloadSignature {
         lo = mix64(lo ^ self.memory_topology_lo);
         hi = mix64(hi ^ self.execution_topology_hi);
         lo = mix64(lo ^ self.execution_topology_lo);
-        PlanKey { signature_hi: hi, signature_lo: lo }
+        PlanKey {
+            signature_hi: hi,
+            signature_lo: lo,
+        }
     }
 }
 
@@ -2145,7 +2231,10 @@ impl CanonicalWorkload {
             let mut o = 0usize;
             while o < node.outputs.len() {
                 if let Some(tensor) = self.find_tensor(node.outputs[o]) {
-                    if matches!(tensor.role, TensorRole::Index | TensorRole::IndexResult | TensorRole::Mask) {
+                    if matches!(
+                        tensor.role,
+                        TensorRole::Index | TensorRole::IndexResult | TensorRole::Mask
+                    ) {
                         o += 1;
                         continue;
                     }
@@ -2163,7 +2252,11 @@ impl CanonicalWorkload {
             }
             n += 1;
         }
-        if found { (abs, rel) } else { (0.0, 0.0) }
+        if found {
+            (abs, rel)
+        } else {
+            (0.0, 0.0)
+        }
     }
 
     #[inline(always)]
@@ -2184,7 +2277,9 @@ impl CanonicalWorkload {
 
     fn validate_topologies(&self) -> Result<(), PlanError> {
         self.hardware.validate_canonical()?;
-        if !self.execution_topology.cpu_enabled && self.execution_topology.gpu_device_ordinals.is_empty() {
+        if !self.execution_topology.cpu_enabled
+            && self.execution_topology.gpu_device_ordinals.is_empty()
+        {
             return Err(PlanError::InvalidExecutionTopology);
         }
         if self.execution_topology.cpu_enabled && self.hardware.cpu.is_none() {
@@ -2277,7 +2372,9 @@ impl CanonicalWorkload {
             }
             let mut j = i + 1;
             while j < self.memory_topology.host_numa_nodes.len() {
-                if self.memory_topology.host_numa_nodes[i] == self.memory_topology.host_numa_nodes[j] {
+                if self.memory_topology.host_numa_nodes[i]
+                    == self.memory_topology.host_numa_nodes[j]
+                {
                     return Err(PlanError::InvalidMemoryTopology);
                 }
                 j += 1;
@@ -2298,15 +2395,20 @@ impl CanonicalWorkload {
         while i < self.memory_topology.host_numa_distances.len() {
             let distance = self.memory_topology.host_numa_distances[i];
             if distance.distance == 0
-                || !self.memory_topology.host_numa_nodes.contains(&distance.src_node)
-                || !self.memory_topology.host_numa_nodes.contains(&distance.dst_node)
+                || !self
+                    .memory_topology
+                    .host_numa_nodes
+                    .contains(&distance.src_node)
+                || !self
+                    .memory_topology
+                    .host_numa_nodes
+                    .contains(&distance.dst_node)
             {
                 return Err(PlanError::InvalidMemoryTopology);
             }
             if i > 0 {
                 let previous = self.memory_topology.host_numa_distances[i - 1];
-                if (previous.src_node, previous.dst_node)
-                    >= (distance.src_node, distance.dst_node)
+                if (previous.src_node, previous.dst_node) >= (distance.src_node, distance.dst_node)
                 {
                     return Err(PlanError::InvalidMemoryTopology);
                 }
@@ -2319,15 +2421,20 @@ impl CanonicalWorkload {
             let pair = self.memory_topology.peer_access[i];
             if i > 0 {
                 let previous = self.memory_topology.peer_access[i - 1];
-                if (previous.src_device, previous.dst_device)
-                    >= (pair.src_device, pair.dst_device)
+                if (previous.src_device, previous.dst_device) >= (pair.src_device, pair.dst_device)
                 {
                     return Err(PlanError::InvalidMemoryTopology);
                 }
             }
             if pair.src_device == pair.dst_device
-                || !self.memory_topology.gpu_device_ordinals.contains(&pair.src_device)
-                || !self.memory_topology.gpu_device_ordinals.contains(&pair.dst_device)
+                || !self
+                    .memory_topology
+                    .gpu_device_ordinals
+                    .contains(&pair.src_device)
+                || !self
+                    .memory_topology
+                    .gpu_device_ordinals
+                    .contains(&pair.dst_device)
                 || (pair.native_atomic_supported && pair.partial_native_atomic_supported)
                 || (pair.partial_native_atomic_supported && pair.atomic_capabilities_hash == 0)
                 || (!pair.partial_native_atomic_supported && pair.atomic_capabilities_hash != 0)
@@ -2373,8 +2480,13 @@ impl CanonicalWorkload {
             if tensor.id != i as TensorId {
                 return Err(PlanError::InvalidCanonicalGraph);
             }
-            tensor.layout.validate_for_dtype(&tensor.shape, tensor.dtype)?;
-            tensor.shape.byte_count(tensor.dtype).ok_or(PlanError::TensorByteCountOverflow)?;
+            tensor
+                .layout
+                .validate_for_dtype(&tensor.shape, tensor.dtype)?;
+            tensor
+                .shape
+                .byte_count(tensor.dtype)
+                .ok_or(PlanError::TensorByteCountOverflow)?;
             if !tensor.tolerance.is_valid() {
                 return Err(PlanError::InvalidAccuracyContract);
             }
@@ -2395,7 +2507,9 @@ impl CanonicalWorkload {
             }
             match tensor.role {
                 TensorRole::Data | TensorRole::Auxiliary if tensor.dtype == DType::F32 => {}
-                TensorRole::Index if matches!(tensor.dtype, DType::I32 | DType::I64 | DType::U64) => {
+                TensorRole::Index
+                    if matches!(tensor.dtype, DType::I32 | DType::I64 | DType::U64) =>
+                {
                     if tensor.accuracy != AccuracyContract::Exact || abs != 0.0 || rel != 0.0 {
                         return Err(PlanError::InvalidAccuracyContract);
                     }
@@ -2452,15 +2566,16 @@ impl CanonicalWorkload {
             // frozen-plan/bind validators; admitting the semantic graph does
             // NOT advertise a GPU implementation or turn on runtime fallback.
             // Unimplemented legacy opcodes remain outside this release scope.
-            if matches!(node.operation,
+            if matches!(
+                node.operation,
                 Operation::Cast
-                | Operation::FourierTransform(_)
-                | Operation::DenseLinearAlgebra(_)
-                | Operation::Convolution(_)
-                | Operation::Attention(_)
-                | Operation::Collective(_)
-                | Operation::Pooling(_)
-                | Operation::Custom { .. }
+                    | Operation::FourierTransform(_)
+                    | Operation::DenseLinearAlgebra(_)
+                    | Operation::Convolution(_)
+                    | Operation::Attention(_)
+                    | Operation::Collective(_)
+                    | Operation::Pooling(_)
+                    | Operation::Custom { .. }
             ) {
                 return Err(PlanError::InvalidOperationSpec);
             }
@@ -2604,7 +2719,8 @@ mod normalized_cpu_graph_admission_tests {
         let mut stride = 1isize;
         for axis in (0..shape.rank()).rev() {
             strides[axis] = stride;
-            let dim = isize::try_from(shape.dim(axis).expect("valid axis")).expect("small test shape");
+            let dim =
+                isize::try_from(shape.dim(axis).expect("valid axis")).expect("small test shape");
             stride = stride.checked_mul(dim).expect("small test shape");
         }
         TensorSpec {
@@ -2645,7 +2761,9 @@ mod normalized_cpu_graph_admission_tests {
     }
 
     fn check_canonical_graph(
-        operation: Operation, input_shape: StaticShape, output_shape: StaticShape,
+        operation: Operation,
+        input_shape: StaticShape,
+        output_shape: StaticShape,
     ) -> Result<(), PlanError> {
         // The canonical IR uses static slices. Leak tiny fixtures in tests;
         // nothing here is part of a production runtime or performance path.
@@ -2653,15 +2771,13 @@ mod normalized_cpu_graph_admission_tests {
             f32_tensor(0, input_shape),
             f32_tensor(1, output_shape),
         ]));
-        let nodes: &'static [CanonicalNode] = Box::leak(Box::new([
-            CanonicalNode {
-                id: 0,
-                operation,
-                dependencies: &[],
-                inputs: &[0],
-                outputs: &[1],
-            },
-        ]));
+        let nodes: &'static [CanonicalNode] = Box::leak(Box::new([CanonicalNode {
+            id: 0,
+            operation,
+            dependencies: &[],
+            inputs: &[0],
+            outputs: &[1],
+        }]));
         let graph = CanonicalWorkload {
             graph: CanonicalStaticDataflow { tensors, nodes },
             hardware: super::super::target::HardwareContract::canonical(None, &[]),
@@ -2690,9 +2806,10 @@ mod normalized_cpu_graph_admission_tests {
     fn softmax_and_all_six_f32_normalizations_reach_canonical_graph() {
         let shape = StaticShape::Rank3([2, 4, 3]);
         for log in [false, true] {
-            assert_eq!(check_canonical_graph(
-                Operation::Softmax { axis: 2, log }, shape, shape,
-            ), Ok(()));
+            assert_eq!(
+                check_canonical_graph(Operation::Softmax { axis: 2, log }, shape, shape,),
+                Ok(())
+            );
         }
         let epsilon_f32_bits = 1e-5_f32.to_bits();
         let cases = [
@@ -2711,87 +2828,141 @@ mod normalized_cpu_graph_admission_tests {
                 channel_axis,
                 groups,
             });
-            assert_eq!(check_canonical_graph(operation, shape, shape), Ok(()),
-                "should admit semantic f32 graph: {kind:?}");
+            assert_eq!(
+                check_canonical_graph(operation, shape, shape),
+                Ok(()),
+                "should admit semantic f32 graph: {kind:?}"
+            );
         }
     }
 
     #[test]
     fn high_rank_axes_and_empty_batch_do_not_change_f32_shape_contract() {
         let shape = StaticShape::Rank8([1, 2, 1, 1, 1, 1, 1, 3]);
-        assert_eq!(check_canonical_graph(
-            Operation::Softmax { axis: 7, log: false }, shape, shape,
-        ), Ok(()));
-        assert_eq!(check_canonical_graph(
-            Operation::Normalization(NormalizationSpec {
-                kind: NormalizationKind::LayerNorm,
-                axes: AxisMask(0b1000_0000),
-                epsilon_f32_bits: 1e-5_f32.to_bits(),
-                groups: 0,
-                channel_axis: 0,
-            }), shape, shape,
-        ), Ok(()));
-        assert_eq!(check_canonical_graph(
-            Operation::Normalization(NormalizationSpec {
-                kind: NormalizationKind::GroupNorm,
-                axes: AxisMask(0b1111_1110),
-                epsilon_f32_bits: 1e-5_f32.to_bits(),
-                groups: 2,
-                channel_axis: 1,
-            }), shape, shape,
-        ), Ok(()));
+        assert_eq!(
+            check_canonical_graph(
+                Operation::Softmax {
+                    axis: 7,
+                    log: false
+                },
+                shape,
+                shape,
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            check_canonical_graph(
+                Operation::Normalization(NormalizationSpec {
+                    kind: NormalizationKind::LayerNorm,
+                    axes: AxisMask(0b1000_0000),
+                    epsilon_f32_bits: 1e-5_f32.to_bits(),
+                    groups: 0,
+                    channel_axis: 0,
+                }),
+                shape,
+                shape,
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            check_canonical_graph(
+                Operation::Normalization(NormalizationSpec {
+                    kind: NormalizationKind::GroupNorm,
+                    axes: AxisMask(0b1111_1110),
+                    epsilon_f32_bits: 1e-5_f32.to_bits(),
+                    groups: 2,
+                    channel_axis: 1,
+                }),
+                shape,
+                shape,
+            ),
+            Ok(())
+        );
         let empty_batch = StaticShape::Rank3([0, 4, 3]);
-        assert_eq!(check_canonical_graph(
-            Operation::Softmax { axis: 2, log: true }, empty_batch, empty_batch,
-        ), Ok(()));
-        assert_eq!(check_canonical_graph(
-            Operation::Normalization(NormalizationSpec {
-                kind: NormalizationKind::GroupNorm,
-                axes: AxisMask(0b110),
-                epsilon_f32_bits: 1e-5_f32.to_bits(),
-                groups: 2,
-                channel_axis: 1,
-            }), empty_batch, empty_batch,
-        ), Ok(()));
+        assert_eq!(
+            check_canonical_graph(
+                Operation::Softmax { axis: 2, log: true },
+                empty_batch,
+                empty_batch,
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            check_canonical_graph(
+                Operation::Normalization(NormalizationSpec {
+                    kind: NormalizationKind::GroupNorm,
+                    axes: AxisMask(0b110),
+                    epsilon_f32_bits: 1e-5_f32.to_bits(),
+                    groups: 2,
+                    channel_axis: 1,
+                }),
+                empty_batch,
+                empty_batch,
+            ),
+            Ok(())
+        );
     }
 
     #[test]
     fn admitted_f32_ops_still_reject_invalid_axes_or_changed_shape() {
         let shape = StaticShape::Rank3([2, 4, 3]);
-        assert_eq!(check_canonical_graph(
-            Operation::Softmax { axis: 3, log: false }, shape, shape,
-        ), Err(PlanError::InvalidOperationSpec));
-        assert_eq!(check_canonical_graph(
-            Operation::Softmax { axis: 2, log: true },
-            shape, StaticShape::Rank3([2, 4, 2]),
-        ), Err(PlanError::InvalidOperationSpec));
+        assert_eq!(
+            check_canonical_graph(
+                Operation::Softmax {
+                    axis: 3,
+                    log: false
+                },
+                shape,
+                shape,
+            ),
+            Err(PlanError::InvalidOperationSpec)
+        );
+        assert_eq!(
+            check_canonical_graph(
+                Operation::Softmax { axis: 2, log: true },
+                shape,
+                StaticShape::Rank3([2, 4, 2]),
+            ),
+            Err(PlanError::InvalidOperationSpec)
+        );
         for (kind, axes, channel_axis, groups) in [
             (NormalizationKind::BatchNorm, 0b100, 1, 0),
             (NormalizationKind::InstanceNorm, 0b101, 1, 0),
             (NormalizationKind::GroupNorm, 0b110, 1, 3),
         ] {
-            assert_eq!(check_canonical_graph(
-                Operation::Normalization(NormalizationSpec {
-                    kind,
-                    axes: AxisMask(axes),
-                    epsilon_f32_bits: 1e-5_f32.to_bits(),
-                    groups,
-                    channel_axis,
-                }), shape, shape,
-            ), Err(PlanError::InvalidOperationSpec));
+            assert_eq!(
+                check_canonical_graph(
+                    Operation::Normalization(NormalizationSpec {
+                        kind,
+                        axes: AxisMask(axes),
+                        epsilon_f32_bits: 1e-5_f32.to_bits(),
+                        groups,
+                        channel_axis,
+                    }),
+                    shape,
+                    shape,
+                ),
+                Err(PlanError::InvalidOperationSpec)
+            );
         }
-        assert_eq!(check_canonical_graph(
-            Operation::Normalization(NormalizationSpec {
-                kind: NormalizationKind::LayerNorm,
-                axes: AxisMask(0b100),
-                epsilon_f32_bits: 1e-5_f32.to_bits(),
-                groups: 0,
-                channel_axis: 0,
-            }), shape, StaticShape::Rank3([2, 4, 2]),
-        ), Err(PlanError::InvalidOperationSpec));
+        assert_eq!(
+            check_canonical_graph(
+                Operation::Normalization(NormalizationSpec {
+                    kind: NormalizationKind::LayerNorm,
+                    axes: AxisMask(0b100),
+                    epsilon_f32_bits: 1e-5_f32.to_bits(),
+                    groups: 0,
+                    channel_axis: 0,
+                }),
+                shape,
+                StaticShape::Rank3([2, 4, 2]),
+            ),
+            Err(PlanError::InvalidOperationSpec)
+        );
         // Scope reduction is intentional: unsafe Cast remains rejected.
-        assert_eq!(check_canonical_graph(
-            Operation::Cast, shape, shape,
-        ), Err(PlanError::InvalidOperationSpec));
+        assert_eq!(
+            check_canonical_graph(Operation::Cast, shape, shape,),
+            Err(PlanError::InvalidOperationSpec)
+        );
     }
 }

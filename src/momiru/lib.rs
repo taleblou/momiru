@@ -10,7 +10,7 @@
 // Component:     Crate Interface
 // Subcomponent:  Independent Tensor Module Registry
 // Module:        momiru
-// Source:        src/lib.rs
+// Source:        src/momiru/lib.rs
 // Language:      Rust
 // Architecture:  UASDEA
 //

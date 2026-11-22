@@ -132,7 +132,8 @@
 //! `usize` strides so safe borrowed slices never point before their base.
 
 use super::{
-    normalize_axis, normalize_index, InternalOverlap, Rank, Shape, Tensor, TensorElement, TensorError, ValidRank,
+    normalize_axis, normalize_index, InternalOverlap, Rank, Shape, Tensor, TensorElement,
+    TensorError, ValidRank,
 };
 
 pub struct TensorView<'a, T: TensorElement, const R: usize>
@@ -228,13 +229,17 @@ where
 /// arithmetic in types: OUT is explicitly supplied and validated at runtime
 /// (with both ranks statically constrained to 0..8).
 fn unsqueeze_parts<'a, T: TensorElement, const R: usize, const OUT: usize>(
-    shape: Shape<R>, data: &'a [T], axis: usize,
+    shape: Shape<R>,
+    data: &'a [T],
+    axis: usize,
 ) -> Result<TensorView<'a, T, OUT>, TensorError>
 where
     Rank<R>: ValidRank,
     Rank<OUT>: ValidRank,
 {
-    if R >= 8 || OUT != R + 1 || axis > R { return Err(TensorError::AxisOutOfBounds); }
+    if R >= 8 || OUT != R + 1 || axis > R {
+        return Err(TensorError::AxisOutOfBounds);
+    }
     let mut dims = [0usize; OUT];
     let mut strides = [0usize; OUT];
     let mut src = 0usize;
@@ -252,7 +257,9 @@ where
 }
 
 fn squeeze_axis_parts<'a, T: TensorElement, const R: usize, const OUT: usize>(
-    shape: Shape<R>, data: &'a [T], axis: usize,
+    shape: Shape<R>,
+    data: &'a [T],
+    axis: usize,
 ) -> Result<TensorView<'a, T, OUT>, TensorError>
 where
     Rank<R>: ValidRank,
@@ -275,7 +282,10 @@ where
 }
 
 fn flatten_parts<'a, T: TensorElement, const R: usize, const OUT: usize>(
-    shape: Shape<R>, data: &'a [T], start: usize, end: usize,
+    shape: Shape<R>,
+    data: &'a [T],
+    start: usize,
+    end: usize,
 ) -> Result<TensorView<'a, T, OUT>, TensorError>
 where
     Rank<R>: ValidRank,
@@ -284,12 +294,10 @@ where
     if R == 0 || start > end || end >= R || OUT != R - (end - start) {
         return Err(TensorError::ShapeMismatch);
     }
-    // Only the selected axis group must be flattenable. Outer axes may be
-    // transposed or have gaps; a frozen dataflow graph is not needed for this
-    // exact metadata-only remapping.
-    let (collapsed, collapsed_stride) = super::collapse_flatten_group(
-        shape.dims(), &shape.signed_strides(), start, end,
-    )?;
+    // Only the selected axis group needs an affine progression, and only if
+    // the view has reachable elements.
+    let (collapsed, collapsed_stride) =
+        super::collapse_flatten_group(shape.dims(), &shape.signed_strides(), start, end)?;
     let mut dims = [0usize; OUT];
     let mut strides = [0usize; OUT];
     let mut dst = 0usize;
@@ -297,8 +305,8 @@ where
         if src == start {
             dims[dst] = collapsed;
             // All positive strides entering Shape were checked to fit isize.
-            strides[dst] = usize::try_from(collapsed_stride)
-                .map_err(|_| TensorError::NonContiguous)?;
+            strides[dst] =
+                usize::try_from(collapsed_stride).map_err(|_| TensorError::NonContiguous)?;
             dst += 1;
         } else if src < start || src > end {
             dims[dst] = shape.dims()[src];
@@ -310,13 +318,19 @@ where
 }
 
 fn movedim_axes<const R: usize>(from: usize, to: usize) -> Result<[usize; R], TensorError> {
-    if from >= R || to >= R { return Err(TensorError::AxisOutOfBounds); }
+    if from >= R || to >= R {
+        return Err(TensorError::AxisOutOfBounds);
+    }
     let mut axes = core::array::from_fn(|i| i);
     let moving = axes[from];
     if from < to {
-        for i in from..to { axes[i] = axes[i + 1]; }
+        for i in from..to {
+            axes[i] = axes[i + 1];
+        }
     } else {
-        for i in (to + 1..=from).rev() { axes[i] = axes[i - 1]; }
+        for i in (to + 1..=from).rev() {
+            axes[i] = axes[i - 1];
+        }
     }
     axes[to] = moving;
     Ok(axes)
@@ -354,39 +368,67 @@ where
     /// Constant-cost metadata helpers; never expose a strided view as a flat
     /// contiguous slice, and never perform payload reads or bulk operations.
     #[inline(always)]
-    pub const fn ndim(&self) -> usize { R }
+    pub const fn ndim(&self) -> usize {
+        R
+    }
     #[inline(always)]
-    pub const fn dims(&self) -> &[usize; R] { self.shape.dims() }
+    pub const fn dims(&self) -> &[usize; R] {
+        self.shape.dims()
+    }
     #[inline(always)]
-    pub const fn strides(&self) -> &[usize; R] { self.shape.strides() }
+    pub const fn strides(&self) -> &[usize; R] {
+        self.shape.strides()
+    }
     #[inline(always)]
-    pub const fn len(&self) -> usize { self.shape.len() }
+    pub const fn len(&self) -> usize {
+        self.shape.len()
+    }
     #[inline(always)]
-    pub const fn numel(&self) -> usize { self.shape.numel() }
+    pub const fn numel(&self) -> usize {
+        self.shape.numel()
+    }
     #[inline(always)]
-    pub const fn nbytes(&self) -> usize { self.shape.nbytes() }
+    pub const fn nbytes(&self) -> usize {
+        self.shape.nbytes()
+    }
     #[inline(always)]
-    pub const fn is_empty(&self) -> bool { self.shape.is_empty() }
+    pub const fn is_empty(&self) -> bool {
+        self.shape.is_empty()
+    }
     #[inline(always)]
-    pub const fn is_scalar(&self) -> bool { R == 0 }
+    pub const fn is_scalar(&self) -> bool {
+        R == 0
+    }
 
     /// Number of elements in the smallest reachable backing span. This may
     /// differ from `numel` for gapped/broadcast views; no allocation is made.
     #[inline(always)]
-    pub const fn span_len(&self) -> usize { self.shape.span_len() }
+    pub const fn span_len(&self) -> usize {
+        self.shape.span_len()
+    }
 
     /// Host metadata checks on the same sealed Shape certificate as Tensor.
     /// These never touch f32 payloads or select/rewrite an execution plan.
     #[inline(always)]
-    pub fn is_c_contiguous(&self) -> bool { self.shape.is_c_contiguous() }
+    pub fn is_c_contiguous(&self) -> bool {
+        self.shape.is_c_contiguous()
+    }
     #[inline(always)]
-    pub fn is_f_contiguous(&self) -> bool { self.shape.is_f_contiguous() }
+    pub fn is_f_contiguous(&self) -> bool {
+        self.shape.is_f_contiguous()
+    }
     #[inline(always)]
-    pub fn internal_overlap(&self) -> InternalOverlap { self.shape.internal_overlap() }
+    pub fn internal_overlap(&self) -> InternalOverlap {
+        self.shape.internal_overlap()
+    }
     #[inline(always)]
-    pub fn is_unique(&self) -> bool { self.shape.is_unique() }
+    pub fn is_unique(&self) -> bool {
+        self.shape.is_unique()
+    }
     #[inline(always)]
-    pub fn is_exhaustive(&self) -> bool { self.shape.is_exhaustive() }
+    pub fn is_exhaustive(&self) -> bool {
+        self.shape.is_exhaustive()
+    }
 
     /// Read-only logical C-order slice; reject noncontiguous/strided layouts.
     #[inline(always)]
@@ -418,40 +460,49 @@ where
         self.permute(movedim_axes::<R>(from, to)?)
     }
 
-    pub fn unsqueeze<const OUT: usize>(&self, axis: usize)
-        -> Result<TensorView<'_, T, OUT>, TensorError>
-    where Rank<OUT>: ValidRank,
+    pub fn unsqueeze<const OUT: usize>(
+        &self,
+        axis: usize,
+    ) -> Result<TensorView<'_, T, OUT>, TensorError>
+    where
+        Rank<OUT>: ValidRank,
     {
         unsqueeze_parts(self.shape, self.data, axis)
     }
 
-    pub fn squeeze_axis<const OUT: usize>(&self, axis: usize)
-        -> Result<TensorView<'_, T, OUT>, TensorError>
-    where Rank<OUT>: ValidRank,
+    pub fn squeeze_axis<const OUT: usize>(
+        &self,
+        axis: usize,
+    ) -> Result<TensorView<'_, T, OUT>, TensorError>
+    where
+        Rank<OUT>: ValidRank,
     {
         squeeze_axis_parts(self.shape, self.data, axis)
     }
 
-    pub fn flatten_view<const OUT: usize>(&self, start: usize, end: usize)
-        -> Result<TensorView<'_, T, OUT>, TensorError>
-    where Rank<OUT>: ValidRank,
+    pub fn flatten_view<const OUT: usize>(
+        &self,
+        start: usize,
+        end: usize,
+    ) -> Result<TensorView<'_, T, OUT>, TensorError>
+    where
+        Rank<OUT>: ValidRank,
     {
         flatten_parts(self.shape, self.data, start, end)
     }
 
-    pub fn broadcast_to<const OUT: usize>(&self, dims: [usize; OUT])
-        -> Result<TensorView<'_, T, OUT>, TensorError>
-    where Rank<OUT>: ValidRank,
+    pub fn broadcast_to<const OUT: usize>(
+        &self,
+        dims: [usize; OUT],
+    ) -> Result<TensorView<'_, T, OUT>, TensorError>
+    where
+        Rank<OUT>: ValidRank,
     {
         self.expand_view(dims)
     }
 
     /// Zero-copy swap of two logical axes.
-    pub fn transpose(
-        &self,
-        dim0: isize,
-        dim1: isize,
-    ) -> Result<TensorView<'_, T, R>, TensorError> {
+    pub fn transpose(&self, dim0: isize, dim1: isize) -> Result<TensorView<'_, T, R>, TensorError> {
         let d0 = normalize_axis(dim0, R)?;
         let d1 = normalize_axis(dim1, R)?;
         let mut axes = core::array::from_fn(|i| i);
@@ -556,39 +607,67 @@ where
     /// Constant-cost metadata helpers; never expose a strided view as a flat
     /// contiguous slice, and never perform payload reads or bulk operations.
     #[inline(always)]
-    pub const fn ndim(&self) -> usize { R }
+    pub const fn ndim(&self) -> usize {
+        R
+    }
     #[inline(always)]
-    pub const fn dims(&self) -> &[usize; R] { self.shape.dims() }
+    pub const fn dims(&self) -> &[usize; R] {
+        self.shape.dims()
+    }
     #[inline(always)]
-    pub const fn strides(&self) -> &[usize; R] { self.shape.strides() }
+    pub const fn strides(&self) -> &[usize; R] {
+        self.shape.strides()
+    }
     #[inline(always)]
-    pub const fn len(&self) -> usize { self.shape.len() }
+    pub const fn len(&self) -> usize {
+        self.shape.len()
+    }
     #[inline(always)]
-    pub const fn numel(&self) -> usize { self.shape.numel() }
+    pub const fn numel(&self) -> usize {
+        self.shape.numel()
+    }
     #[inline(always)]
-    pub const fn nbytes(&self) -> usize { self.shape.nbytes() }
+    pub const fn nbytes(&self) -> usize {
+        self.shape.nbytes()
+    }
     #[inline(always)]
-    pub const fn is_empty(&self) -> bool { self.shape.is_empty() }
+    pub const fn is_empty(&self) -> bool {
+        self.shape.is_empty()
+    }
     #[inline(always)]
-    pub const fn is_scalar(&self) -> bool { R == 0 }
+    pub const fn is_scalar(&self) -> bool {
+        R == 0
+    }
 
     /// Number of elements in the smallest reachable backing span. This may
     /// differ from `numel` for gapped/broadcast views; no allocation is made.
     #[inline(always)]
-    pub const fn span_len(&self) -> usize { self.shape.span_len() }
+    pub const fn span_len(&self) -> usize {
+        self.shape.span_len()
+    }
 
     /// Host metadata checks on the same sealed Shape certificate as Tensor.
     /// These never touch f32 payloads or select/rewrite an execution plan.
     #[inline(always)]
-    pub fn is_c_contiguous(&self) -> bool { self.shape.is_c_contiguous() }
+    pub fn is_c_contiguous(&self) -> bool {
+        self.shape.is_c_contiguous()
+    }
     #[inline(always)]
-    pub fn is_f_contiguous(&self) -> bool { self.shape.is_f_contiguous() }
+    pub fn is_f_contiguous(&self) -> bool {
+        self.shape.is_f_contiguous()
+    }
     #[inline(always)]
-    pub fn internal_overlap(&self) -> InternalOverlap { self.shape.internal_overlap() }
+    pub fn internal_overlap(&self) -> InternalOverlap {
+        self.shape.internal_overlap()
+    }
     #[inline(always)]
-    pub fn is_unique(&self) -> bool { self.shape.is_unique() }
+    pub fn is_unique(&self) -> bool {
+        self.shape.is_unique()
+    }
     #[inline(always)]
-    pub fn is_exhaustive(&self) -> bool { self.shape.is_exhaustive() }
+    pub fn is_exhaustive(&self) -> bool {
+        self.shape.is_exhaustive()
+    }
 
     /// Return logical C-order storage only; do not expose stride gaps.
     #[inline(always)]
@@ -598,7 +677,8 @@ where
 
     #[inline(always)]
     pub fn as_mut_slice(&mut self) -> Result<&mut [T], TensorError> {
-        self.as_contiguous_mut_slice().ok_or(TensorError::NonContiguous)
+        self.as_contiguous_mut_slice()
+            .ok_or(TensorError::NonContiguous)
     }
 
     #[inline(always)]
@@ -661,11 +741,7 @@ struct NormalizedSlice {
 }
 
 #[inline(always)]
-fn normalize_bound(
-    value: Option<isize>,
-    default: usize,
-    dim: usize,
-) -> Result<usize, TensorError> {
+fn normalize_bound(value: Option<isize>, default: usize, dim: usize) -> Result<usize, TensorError> {
     let Some(raw) = value else {
         return Ok(default);
     };
@@ -728,9 +804,9 @@ where
             return Ok((Self::strided(dims, [0usize; R])?, 0));
         }
         let mut base_offset = 0usize;
-        for axis in 0..R {
-            let axis_offset = starts[axis]
-                .checked_mul(self.strides()[axis])
+        for (start, &stride) in starts.into_iter().zip(self.strides()) {
+            let axis_offset = start
+                .checked_mul(stride)
                 .ok_or(TensorError::ShapeOverflow)?;
             base_offset = base_offset
                 .checked_add(axis_offset)
@@ -876,7 +952,6 @@ where
         let (_, tail) = self.data.split_at_mut(offset);
         TensorViewMut::new(shape, tail)
     }
-
 }
 
 impl<T: TensorElement, const R: usize> Tensor<T, R>
@@ -895,39 +970,48 @@ where
         self.permute(movedim_axes::<R>(from, to)?)
     }
 
-    pub fn unsqueeze<const OUT: usize>(&self, axis: usize)
-        -> Result<TensorView<'_, T, OUT>, TensorError>
-    where Rank<OUT>: ValidRank,
+    pub fn unsqueeze<const OUT: usize>(
+        &self,
+        axis: usize,
+    ) -> Result<TensorView<'_, T, OUT>, TensorError>
+    where
+        Rank<OUT>: ValidRank,
     {
         unsqueeze_parts(self.shape, self.data.as_slice(), axis)
     }
 
-    pub fn squeeze_axis<const OUT: usize>(&self, axis: usize)
-        -> Result<TensorView<'_, T, OUT>, TensorError>
-    where Rank<OUT>: ValidRank,
+    pub fn squeeze_axis<const OUT: usize>(
+        &self,
+        axis: usize,
+    ) -> Result<TensorView<'_, T, OUT>, TensorError>
+    where
+        Rank<OUT>: ValidRank,
     {
         squeeze_axis_parts(self.shape, self.data.as_slice(), axis)
     }
 
-    pub fn flatten_view<const OUT: usize>(&self, start: usize, end: usize)
-        -> Result<TensorView<'_, T, OUT>, TensorError>
-    where Rank<OUT>: ValidRank,
+    pub fn flatten_view<const OUT: usize>(
+        &self,
+        start: usize,
+        end: usize,
+    ) -> Result<TensorView<'_, T, OUT>, TensorError>
+    where
+        Rank<OUT>: ValidRank,
     {
         flatten_parts(self.shape, self.data.as_slice(), start, end)
     }
 
-    pub fn broadcast_to<const OUT: usize>(&self, dims: [usize; OUT])
-        -> Result<TensorView<'_, T, OUT>, TensorError>
-    where Rank<OUT>: ValidRank,
+    pub fn broadcast_to<const OUT: usize>(
+        &self,
+        dims: [usize; OUT],
+    ) -> Result<TensorView<'_, T, OUT>, TensorError>
+    where
+        Rank<OUT>: ValidRank,
     {
         self.expand_view(dims)
     }
 
-    pub fn transpose(
-        &self,
-        dim0: isize,
-        dim1: isize,
-    ) -> Result<TensorView<'_, T, R>, TensorError> {
+    pub fn transpose(&self, dim0: isize, dim1: isize) -> Result<TensorView<'_, T, R>, TensorError> {
         let d0 = normalize_axis(dim0, R)?;
         let d1 = normalize_axis(dim1, R)?;
         let mut axes = core::array::from_fn(|i| i);
@@ -966,12 +1050,7 @@ where
     where
         Rank<R2>: ValidRank,
     {
-        TensorView::from_offset_strided(
-            dims,
-            strides,
-            storage_offset,
-            self.data.as_slice(),
-        )
+        TensorView::from_offset_strided(dims, strides, storage_offset, self.data.as_slice())
     }
 
     pub fn slice(&self, specs: [SliceSpec; R]) -> Result<TensorView<'_, T, R>, TensorError> {
@@ -1031,7 +1110,6 @@ where
     ) -> Result<TensorView<'_, T, R>, TensorError> {
         self.narrow(0, start, len)
     }
-
 }
 
 impl<T: TensorElement> Tensor<T, 1> {
@@ -1265,7 +1343,8 @@ where
     if dims.contains(&0) {
         return TensorView::from_offset_strided(dims, [0usize; O], 0, data);
     }
-    let offset = index.checked_mul(shape.strides()[axis])
+    let offset = index
+        .checked_mul(shape.strides()[axis])
         .ok_or(TensorError::ShapeOverflow)?;
     TensorView::from_offset_strided(dims, strides, offset, data)
 }
@@ -1306,7 +1385,8 @@ where
     if dims.contains(&0) {
         return TensorViewMut::from_offset_strided(dims, [0usize; O], 0, data);
     }
-    let offset = index.checked_mul(shape.strides()[axis])
+    let offset = index
+        .checked_mul(shape.strides()[axis])
         .ok_or(TensorError::ShapeOverflow)?;
     TensorViewMut::from_offset_strided(dims, strides, offset, data)
 }

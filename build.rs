@@ -127,15 +127,23 @@ pub(crate) fn has_unverified_codegen_override(
     ];
     for &(key, expected) in EXACT {
         if let Some(value) = get(key) {
-            if !value.trim().eq_ignore_ascii_case(expected) { return true; }
+            if !value.trim().eq_ignore_ascii_case(expected) {
+                return true;
+            }
         }
     }
     if let Some(value) = get("CARGO_INCREMENTAL") {
-        if !matches!(value.trim(), "" | "0" | "false" | "FALSE") { return true; }
+        if !matches!(value.trim(), "" | "0" | "false" | "FALSE") {
+            return true;
+        }
     }
     const UNSAFE_OVERRIDES: &[&str] = &[
-        "RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS", "CARGO_BUILD_RUSTFLAGS",
-        "RUSTC_WRAPPER", "RUSTC_WORKSPACE_WRAPPER", "RUSTDOCFLAGS",
+        "RUSTFLAGS",
+        "CARGO_ENCODED_RUSTFLAGS",
+        "CARGO_BUILD_RUSTFLAGS",
+        "RUSTC_WRAPPER",
+        "RUSTC_WORKSPACE_WRAPPER",
+        "RUSTDOCFLAGS",
         "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_OPT_LEVEL",
         "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_LTO",
         "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_CODEGEN_UNITS",
@@ -145,13 +153,18 @@ pub(crate) fn has_unverified_codegen_override(
         "CARGO_PROFILE_RELEASE_RUSTFLAGS",
         "CARGO_BUILD_TARGET",
     ];
-    if UNSAFE_OVERRIDES.iter().any(|key| get(key).is_some_and(|value| !value.is_empty())) {
+    if UNSAFE_OVERRIDES
+        .iter()
+        .any(|key| get(key).is_some_and(|value| !value.is_empty()))
+    {
         return true;
     }
-    let normalized = target.to_ascii_uppercase().replace('-', "_").replace('.', "_");
+    let normalized = target.to_ascii_uppercase().replace(['-', '.'], "_");
     for suffix in ["RUSTFLAGS", "LINKER", "RUNNER"] {
         let key = format!("CARGO_TARGET_{normalized}_{suffix}");
-        if get(&key).is_some_and(|value| !value.is_empty()) { return true; }
+        if get(&key).is_some_and(|value| !value.is_empty()) {
+            return true;
+        }
     }
     false
 }
@@ -161,19 +174,29 @@ pub(crate) fn has_unverified_codegen_override(
 pub(crate) fn standard_release_output_directory(out: &str) -> bool {
     let path = out.replace('\\', "/");
     let components: Vec<_> = path.split('/').filter(|part| !part.is_empty()).collect();
-    if components.iter().any(|part| matches!(*part, "." | "..")) { return false; }
-    if components.last() != Some(&"out") { return false; }
-    let n = components.len();
-    if n < 5 { return false; }
-    let is_hex = |s: &str| s.len() >= 8 && s.bytes().all(|c| c.is_ascii_hexdigit());
-    if components[n-3] == "build" && components[n-4] == "release" {
-        let folder = components[n-2];
-        if let Some(hash) = folder.strip_prefix("momiru-") { return is_hex(hash); }
+    if components.iter().any(|part| matches!(*part, "." | "..")) {
+        return false;
     }
-    if n >= 6 && components[n-4] == "build" && components[n-5] == "release"
-        && components[n-3] == "momiru"
+    if components.last() != Some(&"out") {
+        return false;
+    }
+    let n = components.len();
+    if n < 5 {
+        return false;
+    }
+    let is_hex = |s: &str| s.len() >= 8 && s.bytes().all(|c| c.is_ascii_hexdigit());
+    if components[n - 3] == "build" && components[n - 4] == "release" {
+        let folder = components[n - 2];
+        if let Some(hash) = folder.strip_prefix("momiru-") {
+            return is_hex(hash);
+        }
+    }
+    if n >= 6
+        && components[n - 4] == "build"
+        && components[n - 5] == "release"
+        && components[n - 3] == "momiru"
     {
-        return is_hex(components[n-2]);
+        return is_hex(components[n - 2]);
     }
     false
 }
@@ -181,8 +204,12 @@ pub(crate) fn standard_release_output_directory(out: &str) -> bool {
 /// Require exactly one exact numeric Rust toolchain channel in the [toolchain]
 /// section. A `stable`/nightly alias cannot qualify as a reproducible pin.
 pub(crate) fn verified_toolchain_pin(source: Option<&str>, version: &str) -> bool {
-    let Some(source) = source else { return false; };
-    if !is_numeric_toolchain_version(version) { return false; }
+    let Some(source) = source else {
+        return false;
+    };
+    if !is_numeric_toolchain_version(version) {
+        return false;
+    }
     let mut in_section = false;
     let mut found = None;
     for raw in source.lines() {
@@ -191,14 +218,28 @@ pub(crate) fn verified_toolchain_pin(source: Option<&str>, version: &str) -> boo
             in_section = line == "[toolchain]";
             continue;
         }
-        if !in_section || line.is_empty() || line.starts_with('#') { continue; }
-        let Some((key, value)) = line.split_once('=') else { continue; };
-        if key.trim() != "channel" { continue; }
-        if found.is_some() { return false; }
+        if !in_section || line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        if key.trim() != "channel" {
+            continue;
+        }
+        if found.is_some() {
+            return false;
+        }
         let value = value.trim();
-        let Some(rest) = value.strip_prefix('"') else { return false; };
-        let Some((quoted, trailing)) = rest.split_once('"') else { return false; };
-        if !trailing.trim().is_empty() && !trailing.trim().starts_with('#') { return false; }
+        let Some(rest) = value.strip_prefix('"') else {
+            return false;
+        };
+        let Some((quoted, trailing)) = rest.split_once('"') else {
+            return false;
+        };
+        if !trailing.trim().is_empty() && !trailing.trim().starts_with('#') {
+            return false;
+        }
         found = Some(quoted);
     }
     found == Some(version)
@@ -207,7 +248,9 @@ pub(crate) fn verified_toolchain_pin(source: Option<&str>, version: &str) -> boo
 fn is_numeric_toolchain_version(s: &str) -> bool {
     let chunks: Vec<_> = s.split('.').collect();
     chunks.len() == 3
-        && chunks.iter().all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
+        && chunks
+            .iter()
+            .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
 }
 
 fn emit(key: &str, value: impl std::fmt::Display) {
@@ -215,27 +258,43 @@ fn emit(key: &str, value: impl std::fmt::Display) {
 }
 
 fn main() {
-    for key in ["PROFILE", "OPT_LEVEL", "OUT_DIR", "TARGET", "RUSTC", "RUSTFLAGS",
-        "CARGO_ENCODED_RUSTFLAGS", "CARGO_BUILD_RUSTFLAGS", "CARGO_INCREMENTAL"] {
+    for key in [
+        "PROFILE",
+        "OPT_LEVEL",
+        "OUT_DIR",
+        "TARGET",
+        "RUSTC",
+        "RUSTFLAGS",
+        "CARGO_ENCODED_RUSTFLAGS",
+        "CARGO_BUILD_RUSTFLAGS",
+        "CARGO_INCREMENTAL",
+    ] {
         println!("cargo:rerun-if-env-changed={key}");
     }
     // Explicit rerun directives disable Cargo's broad default env tracking;
     // therefore every inspected override must also be a rerun dependency.
     for key in [
-        "CARGO_PROFILE_RELEASE_OPT_LEVEL", "CARGO_PROFILE_RELEASE_LTO",
-        "CARGO_PROFILE_RELEASE_CODEGEN_UNITS", "CARGO_PROFILE_RELEASE_PANIC",
+        "CARGO_PROFILE_RELEASE_OPT_LEVEL",
+        "CARGO_PROFILE_RELEASE_LTO",
+        "CARGO_PROFILE_RELEASE_CODEGEN_UNITS",
+        "CARGO_PROFILE_RELEASE_PANIC",
         "CARGO_PROFILE_RELEASE_OVERFLOW_CHECKS",
         "CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS",
-        "CARGO_PROFILE_RELEASE_INCREMENTAL", "CARGO_PROFILE_RELEASE_DEBUG",
-        "CARGO_PROFILE_RELEASE_STRIP", "CARGO_PROFILE_RELEASE_RPATH",
+        "CARGO_PROFILE_RELEASE_INCREMENTAL",
+        "CARGO_PROFILE_RELEASE_DEBUG",
+        "CARGO_PROFILE_RELEASE_STRIP",
+        "CARGO_PROFILE_RELEASE_RPATH",
         "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_OPT_LEVEL",
         "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_LTO",
         "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_CODEGEN_UNITS",
         "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_DEBUG",
         "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_RUSTFLAGS",
         "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_INCREMENTAL",
-        "CARGO_PROFILE_RELEASE_RUSTFLAGS", "CARGO_BUILD_TARGET",
-        "RUSTC_WRAPPER", "RUSTC_WORKSPACE_WRAPPER", "RUSTDOCFLAGS",
+        "CARGO_PROFILE_RELEASE_RUSTFLAGS",
+        "CARGO_BUILD_TARGET",
+        "RUSTC_WRAPPER",
+        "RUSTC_WORKSPACE_WRAPPER",
+        "RUSTDOCFLAGS",
     ] {
         println!("cargo:rerun-if-env-changed={key}");
     }
@@ -244,25 +303,30 @@ fn main() {
     let profile = env::var("PROFILE").unwrap_or_default();
     let opt_level = env::var("OPT_LEVEL").unwrap_or_default();
     let target = env::var("TARGET").unwrap_or_default();
-    let normalized_target = target.to_ascii_uppercase().replace('-', "_").replace('.', "_");
+    let normalized_target = target.to_ascii_uppercase().replace(['-', '.'], "_");
     for suffix in ["RUSTFLAGS", "LINKER", "RUNNER"] {
         println!("cargo:rerun-if-env-changed=CARGO_TARGET_{normalized_target}_{suffix}");
     }
     let out_dir = env::var("OUT_DIR").unwrap_or_default();
-    let toolchain = env::var("CARGO_MANIFEST_DIR").ok()
+    let toolchain = env::var("CARGO_MANIFEST_DIR")
+        .ok()
         .map(|root| Path::new(&root).join("rust-toolchain.toml"))
         .and_then(|path| fs::read_to_string(path).ok());
     let rustc = env::var("RUSTC").unwrap_or_else(|_| "rustc".to_owned());
-    let rustc_full = Command::new(rustc).arg("--version").output().ok()
+    let rustc_full = Command::new(rustc)
+        .arg("--version")
+        .output()
+        .ok()
         .filter(|out| out.status.success())
         .and_then(|out| String::from_utf8(out.stdout).ok())
-        .unwrap_or_else(|| "unknown".to_owned()).trim().to_owned();
+        .unwrap_or_else(|| "unknown".to_owned())
+        .trim()
+        .to_owned();
     let rustc_version = rustc_full.split_whitespace().nth(1).unwrap_or("");
     let pinned = verified_toolchain_pin(toolchain.as_deref(), rustc_version);
     let overridden = has_unverified_codegen_override(&target, |name| env::var(name).ok());
-    let standard = profile == "release"
-        && opt_level == "3"
-        && standard_release_output_directory(&out_dir);
+    let standard =
+        profile == "release" && opt_level == "3" && standard_release_output_directory(&out_dir);
     emit("MOMIRU_BUILD_PROFILE", &profile);
     emit("MOMIRU_BUILD_OPT_LEVEL", &opt_level);
     emit("MOMIRU_BUILD_STANDARD_RELEASE", standard);

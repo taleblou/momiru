@@ -7,6 +7,34 @@ on:
 permissions:
   contents: read
 jobs:
+  source-policy:
+    name: Rust source policy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Check tracked source and metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          git ls-files --stage -z -- . ':(exclude,top)legacy' ':(exclude,top)legacy/**' | (
+            status=0
+            while IFS= read -r -d '' record; do
+              mode=${record%% *}
+              path=${record#*$'\t'}
+              case "$mode:$path" in
+                100644:*.rs|100755:*.rs) ;;
+                100644:*.md|100644:*.toml|100644:*.yaml|100644:*.yml|100644:*.svg) ;;
+                100644:Cargo.lock|100644:LICENSE|100644:.editorconfig|100644:.gitattributes|100644:.gitignore|100644:.github/CODEOWNERS|100644:*/.gitkeep) ;;
+                *)
+                  printf 'Source policy rejects %q (Git mode %s)\n' "$path" "$mode" >&2
+                  status=1
+                  ;;
+              esac
+            done
+            exit "$status"
+          )
   test:
     name: Rust validation (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

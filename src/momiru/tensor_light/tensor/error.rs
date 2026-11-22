@@ -153,7 +153,9 @@ impl core::fmt::Display for TensorError {
             Self::ShapeOverflow => "tensor shape or stride arithmetic overflowed",
             Self::AllocationOverflow => "tensor allocation size overflowed",
             Self::AllocationFailed => "the host allocator could not allocate the requested memory",
-            Self::ResourceInsufficient => "the requested tensor exceeds the caller-selected element budget",
+            Self::ResourceInsufficient => {
+                "the requested tensor exceeds the caller-selected element budget"
+            }
             Self::LengthMismatch => "backing storage length does not match the tensor/view span",
             Self::ShapeMismatch => "tensor shapes are incompatible for this operation",
             Self::InvalidAlignment => "alignment must be a nonzero power of two",
@@ -163,7 +165,9 @@ impl core::fmt::Display for TensorError {
             Self::AxisOutOfBounds => "tensor axis is out of bounds",
             Self::InvalidRange => "range parameters are invalid",
             Self::InvalidProbability => "probability must be finite and within [0, 1]",
-            Self::OverlappingMutableView => "mutable strided view must not map multiple logical indices to the same element",
+            Self::OverlappingMutableView => {
+                "mutable strided view must not map multiple logical indices to the same element"
+            }
             Self::NonContiguous => "the logical tensor view is not forward C-contiguous",
             Self::InvalidReductionAxes => "reduction axis selection or output rank is invalid",
             Self::EmptyReduction => "the evaluated reduction domain is empty",

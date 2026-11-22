@@ -129,7 +129,6 @@
 //! execution-plan representation. CPU, GPU, and CPU-GPU are placement mappings
 //! of that same model. Runtime performs exact binding and deterministic replay.
 
-
 use core::hash::{Hash, Hasher};
 
 // =============================================================================
@@ -186,29 +185,53 @@ impl Hasher for StableIdentityHasher {
     }
 
     #[inline(always)]
-    fn write_u8(&mut self, i: u8) { self.write(&i.to_le_bytes()); }
+    fn write_u8(&mut self, i: u8) {
+        self.write(&i.to_le_bytes());
+    }
     #[inline(always)]
-    fn write_u16(&mut self, i: u16) { self.write(&i.to_le_bytes()); }
+    fn write_u16(&mut self, i: u16) {
+        self.write(&i.to_le_bytes());
+    }
     #[inline(always)]
-    fn write_u32(&mut self, i: u32) { self.write(&i.to_le_bytes()); }
+    fn write_u32(&mut self, i: u32) {
+        self.write(&i.to_le_bytes());
+    }
     #[inline(always)]
-    fn write_u64(&mut self, i: u64) { self.write(&i.to_le_bytes()); }
+    fn write_u64(&mut self, i: u64) {
+        self.write(&i.to_le_bytes());
+    }
     #[inline(always)]
-    fn write_u128(&mut self, i: u128) { self.write(&i.to_le_bytes()); }
+    fn write_u128(&mut self, i: u128) {
+        self.write(&i.to_le_bytes());
+    }
     #[inline(always)]
-    fn write_usize(&mut self, i: usize) { self.write(&(i as u64).to_le_bytes()); }
+    fn write_usize(&mut self, i: usize) {
+        self.write(&(i as u64).to_le_bytes());
+    }
     #[inline(always)]
-    fn write_i8(&mut self, i: i8) { self.write(&i.to_le_bytes()); }
+    fn write_i8(&mut self, i: i8) {
+        self.write(&i.to_le_bytes());
+    }
     #[inline(always)]
-    fn write_i16(&mut self, i: i16) { self.write(&i.to_le_bytes()); }
+    fn write_i16(&mut self, i: i16) {
+        self.write(&i.to_le_bytes());
+    }
     #[inline(always)]
-    fn write_i32(&mut self, i: i32) { self.write(&i.to_le_bytes()); }
+    fn write_i32(&mut self, i: i32) {
+        self.write(&i.to_le_bytes());
+    }
     #[inline(always)]
-    fn write_i64(&mut self, i: i64) { self.write(&i.to_le_bytes()); }
+    fn write_i64(&mut self, i: i64) {
+        self.write(&i.to_le_bytes());
+    }
     #[inline(always)]
-    fn write_i128(&mut self, i: i128) { self.write(&i.to_le_bytes()); }
+    fn write_i128(&mut self, i: i128) {
+        self.write(&i.to_le_bytes());
+    }
     #[inline(always)]
-    fn write_isize(&mut self, i: isize) { self.write(&(i as i64).to_le_bytes()); }
+    fn write_isize(&mut self, i: isize) {
+        self.write(&(i as i64).to_le_bytes());
+    }
 }
 
 /// Feeds two independent, domain-separated identity streams in ONE traversal
@@ -223,7 +246,9 @@ struct PairedIdentityHasher {
 
 impl Hasher for PairedIdentityHasher {
     #[inline(always)]
-    fn finish(&self) -> u64 { self.hi.finish() }
+    fn finish(&self) -> u64 {
+        self.hi.finish()
+    }
 
     #[inline]
     fn write(&mut self, bytes: &[u8]) {
@@ -464,18 +489,19 @@ pub(crate) const fn arena_guarantees_slot_alignment(
     arena_alignment.is_power_of_two()
         && slot_alignment.is_power_of_two()
         && arena_alignment >= slot_alignment
-        && offset_bytes % slot_alignment == 0
+        && offset_bytes.is_multiple_of(slot_alignment)
 }
 
-#[cfg(test)]
-#[path = "../../tests/tensor_light/unit/execution/slot_alignment_regression.rs"]
-mod slot_alignment_regression;
+pub mod cpu;
+mod flip_alias;
 mod ir;
 mod plan;
 mod runtime;
+#[cfg(test)]
+#[path = "../../tests/tensor_light/unit/execution/slot_alignment_regression.rs"]
+mod slot_alignment_regression;
 mod target;
 mod validation;
-pub mod cpu;
 
 // Candidate search and benchmarking are optional and offline-only (feature `aot`).
 
@@ -483,4 +509,3 @@ pub use ir::*;
 pub use plan::*;
 pub use runtime::*;
 pub use target::*;
-

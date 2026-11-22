@@ -130,16 +130,18 @@ use core::cmp::Ordering;
 use std::collections::HashSet;
 
 use crate::tensor_light::execution::{
-    CanonicalWorkload, DenseLinalgKind, Operation, PadMode, ResampleMode, ReusePattern, ScalarElementwiseKind,
-    TensorSpec,
+    gpu_feature, CpuHardwareContract, GpuHardwareContract, LibraryProvider,
 };
 use crate::tensor_light::execution::{stable_hash_pair, PlanError};
 use crate::tensor_light::execution::{
-    BenchmarkStats, CandidateEvidence, CandidateId, CostEstimate,
-    FrozenExecutionPlan, FrozenPlanParts, KernelFamily, NoiseCalibration,
-    NumericalVerification, SelectionEvidence, HeldOutConfirmation,
+    BenchmarkStats, CandidateEvidence, CandidateId, CostEstimate, FrozenExecutionPlan,
+    FrozenPlanParts, HeldOutConfirmation, KernelFamily, NoiseCalibration, NumericalVerification,
+    SelectionEvidence,
 };
-use crate::tensor_light::execution::{gpu_feature, CpuHardwareContract, GpuHardwareContract, LibraryProvider};
+use crate::tensor_light::execution::{
+    CanonicalWorkload, DenseLinalgKind, Operation, PadMode, ResampleMode, ReusePattern,
+    ScalarElementwiseKind, TensorSpec,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct FrozenCandidate {
@@ -391,9 +393,8 @@ fn select_screening_winner(ranks: &[ScreeningRank]) -> (usize, Option<usize>) {
     let mut winner: Option<usize> = None;
     for index in 0..ranks.len() {
         if ranks[index].lower_ns() <= best_upper
-            && winner.is_none_or(|old| {
-                ranks[index].conservative_key() < ranks[old].conservative_key()
-            })
+            && winner
+                .is_none_or(|old| ranks[index].conservative_key() < ranks[old].conservative_key())
         {
             winner = Some(index);
         }
@@ -407,7 +408,9 @@ fn select_screening_winner(ranks: &[ScreeningRank]) -> (usize, Option<usize>) {
     // tournament. Its independent held-out comparison is a release gate.
     let mut challenger: Option<usize> = None;
     for index in 0..ranks.len() {
-        if index == winner { continue; }
+        if index == winner {
+            continue;
+        }
         if challenger.is_none_or(|old| ranks[index].median_key() < ranks[old].median_key()) {
             challenger = Some(index);
         }
@@ -420,7 +423,9 @@ pub fn specialize_and_freeze<S: OfflineSpecializer>(
     workload: &CanonicalWorkload,
     policy: OfflineSelectionPolicy,
 ) -> Result<FrozenExecutionPlan, OfflinePipelineError<S::Error>> {
-    workload.validate().map_err(OfflinePipelineError::InvalidWorkload)?;
+    workload
+        .validate()
+        .map_err(OfflinePipelineError::InvalidWorkload)?;
     let signature = workload.signature();
     if !signature.is_complete() || policy.max_cost_survivors == 0 {
         return Err(OfflinePipelineError::InvalidPolicy);
@@ -440,7 +445,8 @@ pub fn specialize_and_freeze<S: OfflineSpecializer>(
     let mut materialized: Vec<(FrozenCandidate, usize)> = try_candidate_buffer(seeds.len())
         .map_err(|_| OfflinePipelineError::OfflineWorkspaceAllocationFailed)?;
     let mut unique_ids = HashSet::<CandidateId>::new();
-    unique_ids.try_reserve(seeds.len())
+    unique_ids
+        .try_reserve(seeds.len())
         .map_err(|_| OfflinePipelineError::OfflineWorkspaceAllocationFailed)?;
 
     let mut s = 0usize;
@@ -496,7 +502,11 @@ pub fn specialize_and_freeze<S: OfflineSpecializer>(
             .estimate_cost(workload, &candidate)
             .map_err(OfflinePipelineError::Specializer)?;
         audits[audit_index].cost = Some(cost);
-        costed.push(CostedCandidate { candidate, audit_index, cost });
+        costed.push(CostedCandidate {
+            candidate,
+            audit_index,
+            cost,
+        });
         m += 1;
     }
     if costed.is_empty() {
@@ -618,7 +628,11 @@ pub fn specialize_and_freeze<S: OfflineSpecializer>(
     let held_out = specializer
         .confirm_winner_held_out(workload, &winner.candidate, challenger)
         .map_err(OfflinePipelineError::Specializer)?;
-    if !held_out.is_valid_for(winner.evidence.calibration, winner.candidate.id, challenger_id) {
+    if !held_out.is_valid_for(
+        winner.evidence.calibration,
+        winner.candidate.id,
+        challenger_id,
+    ) {
         return Err(OfflinePipelineError::HeldOutNotConfirmed);
     }
     // Candidate generation order is not semantic. Hash the complete audit set
@@ -645,7 +659,6 @@ pub fn specialize_and_freeze<S: OfflineSpecializer>(
     FrozenExecutionPlan::freeze_offline(winner.candidate.parts, *workload, evidence)
         .map_err(OfflinePipelineError::InvalidFrozenPlan)
 }
-
 
 // =============================================================================
 // Candidate seed policies
@@ -694,10 +707,7 @@ const CPU_VENDOR_LINALG: &[LibraryProvider] = &[
     LibraryProvider::Accelerate,
     LibraryProvider::Blas,
 ];
-const CPU_VENDOR_FFT: &[LibraryProvider] = &[
-    LibraryProvider::Mkl,
-    LibraryProvider::Accelerate,
-];
+const CPU_VENDOR_FFT: &[LibraryProvider] = &[LibraryProvider::Mkl, LibraryProvider::Accelerate];
 const CPU_VENDOR_DNN: &[LibraryProvider] = &[LibraryProvider::OneDnn];
 
 /// Exact CPU library providers worth materializing for one semantic operation.
@@ -777,17 +787,12 @@ pub struct GpuAdvancedCandidateSeeds {
 }
 
 const GPU_VENDOR_NONE: &[LibraryProvider] = &[];
-const GPU_VENDOR_MATMUL: &[LibraryProvider] = &[
-    LibraryProvider::CublasLt,
-    LibraryProvider::Cublas,
-];
+const GPU_VENDOR_MATMUL: &[LibraryProvider] = &[LibraryProvider::CublasLt, LibraryProvider::Cublas];
 const GPU_VENDOR_FFT: &[LibraryProvider] = &[LibraryProvider::CuFft];
 const GPU_VENDOR_LINALG: &[LibraryProvider] = &[LibraryProvider::CuSolver];
 const GPU_VENDOR_CONV: &[LibraryProvider] = &[LibraryProvider::Cudnn];
-const GPU_VENDOR_TENSOR_CONTRACT: &[LibraryProvider] = &[
-    LibraryProvider::CuTensor,
-    LibraryProvider::CublasLt,
-];
+const GPU_VENDOR_TENSOR_CONTRACT: &[LibraryProvider] =
+    &[LibraryProvider::CuTensor, LibraryProvider::CublasLt];
 const GPU_VENDOR_ATTENTION: &[LibraryProvider] = &[LibraryProvider::Cudnn];
 const GPU_VENDOR_COLLECTIVE: &[LibraryProvider] = &[LibraryProvider::Nccl];
 const GPU_VENDOR_DNN: &[LibraryProvider] = &[LibraryProvider::Cudnn];
@@ -826,8 +831,7 @@ fn is_cuda_candidate_target(hw: &GpuHardwareContract) -> bool {
     let Ok(capability) = digits.parse::<u16>() else {
         return false;
     };
-    capability / 10 == u16::from(hw.compute_major)
-        && capability % 10 == u16::from(hw.compute_minor)
+    capability / 10 == u16::from(hw.compute_major) && capability % 10 == u16::from(hw.compute_minor)
 }
 
 pub fn gpu_advanced_candidate_seeds(
@@ -971,7 +975,10 @@ pub const fn mask_elementwise_kernel_family_seed() -> KernelFamily {
 /// PReLU with a rank-1 alpha mapped onto the final axis mirrors the dedicated
 /// last-dimension kernels in the supplied CPU/GPU implementations.
 #[inline(always)]
-pub const fn prelu_kernel_family_seed(channelwise_lastdim: bool, broadcast_signature: u64) -> KernelFamily {
+pub const fn prelu_kernel_family_seed(
+    channelwise_lastdim: bool,
+    broadcast_signature: u64,
+) -> KernelFamily {
     if channelwise_lastdim {
         KernelFamily::ChannelwisePRelu
     } else {
@@ -1003,7 +1010,11 @@ pub const fn select_kernel_family_seed() -> KernelFamily {
 /// improve downstream locality enough to win end-to-end.
 #[inline(always)]
 pub const fn view_kernel_family_seed(can_alias: bool, materialized: KernelFamily) -> KernelFamily {
-    if can_alias { KernelFamily::AliasView } else { materialized }
+    if can_alias {
+        KernelFamily::AliasView
+    } else {
+        materialized
+    }
 }
 
 #[inline(always)]
@@ -1114,7 +1125,10 @@ pub const fn downsample_mean_integral2d_candidate_seed(rank: usize, scale: u32) 
 /// rowwise tree; very large reductions receive a two-pass/workspace candidate.
 /// Neighboring families should still be generated and benchmarked offline.
 #[inline(always)]
-pub const fn reduction_kernel_family_seed(reduced_extent: u64, output_elements: u64) -> KernelFamily {
+pub const fn reduction_kernel_family_seed(
+    reduced_extent: u64,
+    output_elements: u64,
+) -> KernelFamily {
     if output_elements > 1 && reduced_extent <= 4_096 {
         KernelFamily::RowwiseReduction
     } else if reduced_extent >= 131_072 {
@@ -1141,7 +1155,10 @@ pub const fn softmax_kernel_family_seed(log: bool) -> KernelFamily {
 /// Prefix kernels in the supplied GPU implementation use a one-block fast path
 /// for short contiguous rows and tiled/segmented work for larger/general axes.
 #[inline(always)]
-pub const fn scan_kernel_family_seed(axis_is_last_contiguous: bool, reduced_extent: u64) -> KernelFamily {
+pub const fn scan_kernel_family_seed(
+    axis_is_last_contiguous: bool,
+    reduced_extent: u64,
+) -> KernelFamily {
     if axis_is_last_contiguous && reduced_extent <= 1_024 {
         KernelFamily::ParallelPrefixScan
     } else {
@@ -1153,7 +1170,10 @@ pub const fn scan_kernel_family_seed(axis_is_last_contiguous: bool, reduced_exte
 /// row widths while CPU/general-axis paths use comparison sorting. Both remain
 /// offline candidates; this function is only the initial enumeration hint.
 #[inline(always)]
-pub const fn sort_kernel_family_seed(axis_is_last_contiguous: bool, axis_extent: u64) -> KernelFamily {
+pub const fn sort_kernel_family_seed(
+    axis_is_last_contiguous: bool,
+    axis_extent: u64,
+) -> KernelFamily {
     if axis_is_last_contiguous && axis_extent <= 1_024 {
         KernelFamily::BitonicSort
     } else {
@@ -1231,7 +1251,10 @@ pub fn cpu_parallel_grain_seed(op_cost: u32) -> u64 {
 }
 
 #[inline(always)]
-pub fn cpu_rank_should_receive_specialized_candidates(rank: usize, policy: CpuOfflineSeedPolicy) -> bool {
+pub fn cpu_rank_should_receive_specialized_candidates(
+    rank: usize,
+    policy: CpuOfflineSeedPolicy,
+) -> bool {
     rank > 0
         && rank <= crate::tensor_light::MAX_RANK
         && rank <= usize::from(policy.rank_specialization_limit)
@@ -1278,7 +1301,8 @@ pub fn copy_kernel_family_seed(input: &TensorSpec) -> KernelFamily {
 pub fn gather_kernel_family_seed(input: &TensorSpec) -> KernelFamily {
     if input.shape.rank() == 4 && input.layout.is_channels_last_contiguous_for(&input.shape) {
         KernelFamily::ChannelsLastGather4d
-    } else if input.shape.rank() == 5 && input.layout.is_channels_last_contiguous_for(&input.shape) {
+    } else if input.shape.rank() == 5 && input.layout.is_channels_last_contiguous_for(&input.shape)
+    {
         KernelFamily::ChannelsLastGather5d
     } else if input.layout.is_row_major_contiguous_for(&input.shape) {
         KernelFamily::ContiguousGather
@@ -1384,7 +1408,6 @@ pub fn cpu_sgemm_primary_seed(
     }
 }
 
-
 /// Optional packed 6 x native-SIMD SGEMM seed recovered from the supplied
 /// implementation. It is deliberately emitted in addition to, not instead of,
 /// the 4x8 packed seed so offline benchmarking can resolve register pressure,
@@ -1398,7 +1421,13 @@ pub fn cpu_sgemm_packed6xsimd_seed(
     simd_bytes: u16,
     c_row_contiguous: bool,
 ) -> Option<CpuSgemmSeed> {
-    if !c_row_contiguous || m < 6 || k == 0 || n == 0 || simd_bytes < 16 || simd_bytes % 4 != 0 {
+    if !c_row_contiguous
+        || m < 6
+        || k == 0
+        || n == 0
+        || simd_bytes < 16
+        || !simd_bytes.is_multiple_of(4)
+    {
         return None;
     }
     let lanes = simd_bytes / 4;
@@ -1468,12 +1497,7 @@ pub fn cpu_sgemm_batched_small_seed(
 /// Fixed-weight SGEMM seed derived from the supplied `PackedSgemmB` path.
 /// Packing is a one-time binding/load action, never replay-time autotuning.
 #[inline(always)]
-pub fn cpu_sgemm_prepacked_b_seed(
-    m: u64,
-    k: u64,
-    n: u64,
-    workers: u16,
-) -> CpuSgemmSeed {
+pub fn cpu_sgemm_prepacked_b_seed(m: u64, k: u64, n: u64, workers: u16) -> CpuSgemmSeed {
     let (tile_m, tile_n, tile_k): (u16, u16, u16) = if m <= 32 || n <= 32 || k <= 32 {
         (32, 64, 64)
     } else if m <= 64 && n >= 512 {
@@ -1573,10 +1597,7 @@ pub const fn cpu_should_seed_persistent_weight_prepack(
     if !policy.seed_persistent_weight_prepack {
         return false;
     }
-    match reuse {
-        ReusePattern::PersistentWeight => true,
-        _ => false,
-    }
+    matches!(reuse, ReusePattern::PersistentWeight)
 }
 
 /// Dense linear-algebra seed. The supplied source has dedicated exact small
@@ -1615,7 +1636,11 @@ fn gpu_warp_seed_cap(
     if warp != 32 && warp != 64 {
         return 0;
     }
-    let requested = if requested_cap == 0 { default_cap } else { requested_cap };
+    let requested = if requested_cap == 0 {
+        default_cap
+    } else {
+        requested_cap
+    };
     let cap = requested.min(device_limit).min(1024);
     cap - cap % warp
 }
@@ -1628,10 +1653,14 @@ pub fn gpu_rowwise_threads_seed(
     policy: GpuOfflineSeedPolicy,
 ) -> u16 {
     let cap = gpu_warp_seed_cap(
-        hw.max_threads_per_block, hw.warp_size,
-        requested_cap, policy.default_threads_per_block,
+        hw.max_threads_per_block,
+        hw.warp_size,
+        requested_cap,
+        policy.default_threads_per_block,
     );
-    if cap == 0 { return 0; }
+    if cap == 0 {
+        return 0;
+    }
     if cap >= 1024 && row_n > 512 {
         1024
     } else if cap >= 512 && row_n > 256 {
@@ -1656,10 +1685,14 @@ pub fn gpu_elementwise_threads_seed(
     policy: GpuOfflineSeedPolicy,
 ) -> u16 {
     let cap = gpu_warp_seed_cap(
-        hw.max_threads_per_block, hw.warp_size,
-        requested_cap, policy.default_threads_per_block,
+        hw.max_threads_per_block,
+        hw.warp_size,
+        requested_cap,
+        policy.default_threads_per_block,
     );
-    if cap == 0 { return 0; }
+    if cap == 0 {
+        return 0;
+    }
     if n < 4_096 {
         return cap.min(128);
     }
@@ -1687,17 +1720,17 @@ pub fn gpu_elementwise_blocks_seed(n: u64, threads: u16, policy: GpuOfflineSeedP
 }
 
 #[cfg(test)]
+#[path = "../../tests/tensor_light/unit/aot/cpu_core_set_worker_seed.rs"]
+mod cpu_core_set_worker_seed;
+#[cfg(test)]
+#[path = "../../tests/tensor_light/unit/aot/fallible_candidate_memory.rs"]
+mod fallible_candidate_memory;
+#[cfg(test)]
+#[path = "../../tests/tensor_light/unit/aot/offline_target_and_policy_regressions.rs"]
+mod offline_target_and_policy_regressions;
+#[cfg(test)]
 #[path = "../../tests/tensor_light/unit/aot/ranking_regressions.rs"]
 mod ranking_regressions;
 #[cfg(test)]
 #[path = "../../tests/tensor_light/unit/aot/seed_arithmetic_regressions.rs"]
 mod seed_arithmetic_regressions;
-#[cfg(test)]
-#[path = "../../tests/tensor_light/unit/aot/offline_target_and_policy_regressions.rs"]
-mod offline_target_and_policy_regressions;
-#[cfg(test)]
-#[path = "../../tests/tensor_light/unit/aot/fallible_candidate_memory.rs"]
-mod fallible_candidate_memory;
-#[cfg(test)]
-#[path = "../../tests/tensor_light/unit/aot/cpu_core_set_worker_seed.rs"]
-mod cpu_core_set_worker_seed;

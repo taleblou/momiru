@@ -124,7 +124,9 @@
 
 //! Safe, exclusive, signed-stride f32 views, with conservative injectivity
 //! proof. CPU host accesses only; bulk operations require a frozen plan.
-use super::{Layout, Rank, SignedSliceSpec, SignedTensorView, Tensor, TensorError, ValidRank};
+use super::{
+    Layout, Rank, SignedSliceSpec, SignedTensorView, Tensor, TensorError, TensorViewMut, ValidRank,
+};
 
 /// An exclusive zero-copy f32 view, accepting negative strides only when the
 /// *whole* logical index mapping is provably injective. A mutable element
@@ -142,7 +144,10 @@ where
     Rank<R>: ValidRank,
 {
     pub fn new(
-        dims: [usize; R], strides: [isize; R], origin: isize, storage: &'a mut [f32],
+        dims: [usize; R],
+        strides: [isize; R],
+        origin: isize,
+        storage: &'a mut [f32],
     ) -> Result<Self, TensorError> {
         let layout = Layout::new(dims, strides, origin, storage.len())?;
         if !layout.is_unique() {
@@ -152,23 +157,39 @@ where
     }
 
     #[inline(always)]
-    pub const fn ndim(&self) -> usize { R }
+    pub const fn ndim(&self) -> usize {
+        R
+    }
     #[inline(always)]
-    pub const fn dims(&self) -> &[usize; R] { self.layout.dims() }
+    pub const fn dims(&self) -> &[usize; R] {
+        self.layout.dims()
+    }
     #[inline(always)]
-    pub const fn strides(&self) -> &[isize; R] { self.layout.strides() }
+    pub const fn strides(&self) -> &[isize; R] {
+        self.layout.strides()
+    }
     #[inline(always)]
-    pub const fn origin_offset(&self) -> isize { self.layout.origin_offset() }
+    pub const fn origin_offset(&self) -> isize {
+        self.layout.origin_offset()
+    }
     #[inline(always)]
-    pub const fn len(&self) -> usize { self.layout.len() }
+    pub const fn len(&self) -> usize {
+        self.layout.len()
+    }
     /// Logical cardinality, not storage span or allocation capacity.
     #[inline(always)]
-    pub const fn numel(&self) -> usize { self.layout.numel() }
+    pub const fn numel(&self) -> usize {
+        self.layout.numel()
+    }
     #[inline(always)]
-    pub const fn is_empty(&self) -> bool { self.layout.len() == 0 }
+    pub const fn is_empty(&self) -> bool {
+        self.layout.len() == 0
+    }
 
     #[inline(always)]
-    pub const fn layout(&self) -> &Layout<R> { &self.layout }
+    pub const fn layout(&self) -> &Layout<R> {
+        &self.layout
+    }
 
     #[inline]
     fn checked_offset(&self, index: [usize; R]) -> Result<usize, TensorError> {
@@ -183,13 +204,17 @@ where
     #[inline]
     pub fn try_get_ref(&self, index: [usize; R]) -> Result<&f32, TensorError> {
         let offset = self.checked_offset(index)?;
-        self.storage.get(offset).ok_or(TensorError::IndexOutOfBounds)
+        self.storage
+            .get(offset)
+            .ok_or(TensorError::IndexOutOfBounds)
     }
 
     #[inline]
     pub fn try_get_mut(&mut self, index: [usize; R]) -> Result<&mut f32, TensorError> {
         let offset = self.checked_offset(index)?;
-        self.storage.get_mut(offset).ok_or(TensorError::IndexOutOfBounds)
+        self.storage
+            .get_mut(offset)
+            .ok_or(TensorError::IndexOutOfBounds)
     }
 
     #[inline]
@@ -205,14 +230,21 @@ where
 
     pub fn as_mut_slice(&mut self) -> Result<&mut [f32], TensorError> {
         let range = self.layout.contiguous_range()?;
-        self.storage.get_mut(range).ok_or(TensorError::IndexOutOfBounds)
+        self.storage
+            .get_mut(range)
+            .ok_or(TensorError::IndexOutOfBounds)
     }
 
     /// Immutable view borrowing this exclusive view for only the duration
     /// of the receiver borrow; it can never escape as a mutable alias.
     pub fn as_readonly(&self) -> Result<SignedTensorView<'_, R>, TensorError> {
         // Borrowed shared storage; bounds are still checked by the constructor.
-        SignedTensorView::new(*self.layout.dims(), *self.layout.strides(), self.layout.origin_offset(), &*self.storage)
+        SignedTensorView::new(
+            *self.layout.dims(),
+            *self.layout.strides(),
+            self.layout.origin_offset(),
+            &*self.storage,
+        )
     }
 
     /// Consumes the exclusive view and returns exactly one transformed owner.
@@ -223,7 +255,9 @@ where
         let mut strides = [0isize; R];
         for axis in 0..R {
             let src = axes[axis];
-            if src >= R || seen[src] { return Err(TensorError::InvalidPermutation); }
+            if src >= R || seen[src] {
+                return Err(TensorError::InvalidPermutation);
+            }
             seen[src] = true;
             dims[axis] = self.layout.dims()[src];
             strides[axis] = self.layout.strides()[src];
@@ -234,7 +268,9 @@ where
     /// Reorder two axes of the exclusive view without copying or duplicating
     /// the unique mutable backing borrow. The source view is consumed.
     pub fn transpose_mut(self, a: usize, b: usize) -> Result<Self, TensorError> {
-        if a >= R || b >= R { return Err(TensorError::AxisOutOfBounds); }
+        if a >= R || b >= R {
+            return Err(TensorError::AxisOutOfBounds);
+        }
         let mut axes = core::array::from_fn(|i| i);
         axes.swap(a, b);
         self.permute_mut(axes)
@@ -249,13 +285,19 @@ where
     /// Move one axis while keeping the relative order of all other axes.
     /// No new storage owner, writable alias, or execution plan is created.
     pub fn movedim_mut(self, from: usize, to: usize) -> Result<Self, TensorError> {
-        if from >= R || to >= R { return Err(TensorError::AxisOutOfBounds); }
+        if from >= R || to >= R {
+            return Err(TensorError::AxisOutOfBounds);
+        }
         let mut axes = core::array::from_fn(|axis| axis);
         let moving = axes[from];
         if from < to {
-            for axis in from..to { axes[axis] = axes[axis + 1]; }
+            for axis in from..to {
+                axes[axis] = axes[axis + 1];
+            }
         } else {
-            for axis in (to + 1..=from).rev() { axes[axis] = axes[axis - 1]; }
+            for axis in (to + 1..=from).rev() {
+                axes[axis] = axes[axis - 1];
+            }
         }
         axes[to] = moving;
         self.permute_mut(axes)
@@ -264,46 +306,64 @@ where
     /// Checked, zero-copy axis subrange. The read-only normalization is used
     /// only to calculate metadata while the mutable borrow remains exclusive;
     /// the resulting mutable view must pass the SAME injectivity guard.
-    pub fn narrow_mut(self, axis: usize, start: usize, length: usize)
-        -> Result<Self, TensorError>
-    {
+    pub fn narrow_mut(self, axis: usize, start: usize, length: usize) -> Result<Self, TensorError> {
         let (dims, strides, origin) = {
             let readonly = SignedTensorView::new(
-                *self.layout.dims(), *self.layout.strides(),
-                self.layout.origin_offset(), &*self.storage,
+                *self.layout.dims(),
+                *self.layout.strides(),
+                self.layout.origin_offset(),
+                &*self.storage,
             )?;
             let narrowed = readonly.narrow(axis, start, length)?;
-            (*narrowed.dims(), *narrowed.strides(), narrowed.origin_offset())
+            (
+                *narrowed.dims(),
+                *narrowed.strides(),
+                narrowed.origin_offset(),
+            )
         };
         Self::new(dims, strides, origin, self.storage)
     }
 
     /// Add one singleton dimension. OUT is checked against the sealed
     /// supported-rank witness, so rank 9 is never exposed.
-    pub fn unsqueeze_mut<const OUT: usize>(self, axis: usize)
-        -> Result<SignedTensorViewMut<'a, OUT>, TensorError>
-    where Rank<OUT>: ValidRank,
+    pub fn unsqueeze_mut<const OUT: usize>(
+        self,
+        axis: usize,
+    ) -> Result<SignedTensorViewMut<'a, OUT>, TensorError>
+    where
+        Rank<OUT>: ValidRank,
     {
         let (dims, strides, origin) = {
             let readonly = SignedTensorView::new(
-                *self.layout.dims(), *self.layout.strides(),
-                self.layout.origin_offset(), &*self.storage,
+                *self.layout.dims(),
+                *self.layout.strides(),
+                self.layout.origin_offset(),
+                &*self.storage,
             )?;
             let expanded = readonly.unsqueeze::<OUT>(axis)?;
-            (*expanded.dims(), *expanded.strides(), expanded.origin_offset())
+            (
+                *expanded.dims(),
+                *expanded.strides(),
+                expanded.origin_offset(),
+            )
         };
         SignedTensorViewMut::new(dims, strides, origin, self.storage)
     }
 
     /// Remove one singleton dimension without materializing data.
-    pub fn squeeze_axis_mut<const OUT: usize>(self, axis: usize)
-        -> Result<SignedTensorViewMut<'a, OUT>, TensorError>
-    where Rank<OUT>: ValidRank,
+    pub fn squeeze_axis_mut<const OUT: usize>(
+        self,
+        axis: usize,
+    ) -> Result<SignedTensorViewMut<'a, OUT>, TensorError>
+    where
+        Rank<OUT>: ValidRank,
     {
         let (dims, strides, origin) = {
             let readonly = SignedTensorView::new(
-                *self.layout.dims(), *self.layout.strides(),
-                self.layout.origin_offset(), &*self.storage,
+                *self.layout.dims(),
+                *self.layout.strides(),
+                self.layout.origin_offset(),
+                &*self.storage,
             )?;
             let reduced = readonly.squeeze_axis::<OUT>(axis)?;
             (*reduced.dims(), *reduced.strides(), reduced.origin_offset())
@@ -311,20 +371,30 @@ where
         SignedTensorViewMut::new(dims, strides, origin, self.storage)
     }
 
-    /// Exact affine C-order merging of a selected group of neighboring axes.
-    /// Works for valid positive, negative, and gapped outer strides. Unlike a
-    /// materializing flatten, this must reject every non-affine collapse.
-    pub fn flatten_view_mut<const OUT: usize>(self, start: usize, end: usize)
-        -> Result<SignedTensorViewMut<'a, OUT>, TensorError>
-    where Rank<OUT>: ValidRank,
+    /// Zero-copy C-order merging of neighboring axes. Nonempty views require
+    /// an affine progression through the group. Empty views only require a
+    /// representable merged extent.
+    pub fn flatten_view_mut<const OUT: usize>(
+        self,
+        start: usize,
+        end: usize,
+    ) -> Result<SignedTensorViewMut<'a, OUT>, TensorError>
+    where
+        Rank<OUT>: ValidRank,
     {
         let (dims, strides, origin) = {
             let readonly = SignedTensorView::new(
-                *self.layout.dims(), *self.layout.strides(),
-                self.layout.origin_offset(), &*self.storage,
+                *self.layout.dims(),
+                *self.layout.strides(),
+                self.layout.origin_offset(),
+                &*self.storage,
             )?;
             let flattened = readonly.flatten_view::<OUT>(start, end)?;
-            (*flattened.dims(), *flattened.strides(), flattened.origin_offset())
+            (
+                *flattened.dims(),
+                *flattened.strides(),
+                flattened.origin_offset(),
+            )
         };
         SignedTensorViewMut::new(dims, strides, origin, self.storage)
     }
@@ -332,14 +402,19 @@ where
     /// A zero-copy reshape is allowed only when the source has logical
     /// forward C-contiguous order and equal element count. The output's
     /// injectivity and capacity are rechecked rather than assumed.
-    pub fn reshape_view_mut<const OUT: usize>(self, dims: [usize; OUT])
-        -> Result<SignedTensorViewMut<'a, OUT>, TensorError>
-    where Rank<OUT>: ValidRank,
+    pub fn reshape_view_mut<const OUT: usize>(
+        self,
+        dims: [usize; OUT],
+    ) -> Result<SignedTensorViewMut<'a, OUT>, TensorError>
+    where
+        Rank<OUT>: ValidRank,
     {
         let (strides, origin) = {
             let readonly = SignedTensorView::new(
-                *self.layout.dims(), *self.layout.strides(),
-                self.layout.origin_offset(), &*self.storage,
+                *self.layout.dims(),
+                *self.layout.strides(),
+                self.layout.origin_offset(),
+                &*self.storage,
             )?;
             let reshaped = readonly.reshape_view::<OUT>(dims)?;
             (*reshaped.strides(), reshaped.origin_offset())
@@ -351,7 +426,12 @@ where
     /// creating aliasing mutable handles. The parent view is moved away.
     pub fn slice_axis_mut(self, axis: usize, spec: SignedSliceSpec) -> Result<Self, TensorError> {
         let (dims, strides, origin) = {
-            let readonly = SignedTensorView::new(*self.layout.dims(), *self.layout.strides(), self.layout.origin_offset(), &*self.storage)?;
+            let readonly = SignedTensorView::new(
+                *self.layout.dims(),
+                *self.layout.strides(),
+                self.layout.origin_offset(),
+                &*self.storage,
+            )?;
             let sliced = readonly.slice_axis(axis, spec)?;
             (*sliced.dims(), *sliced.strides(), sliced.origin_offset())
         };
@@ -363,81 +443,130 @@ where
     }
 }
 
+impl<'a, const R: usize> TensorViewMut<'a, f32, R>
+where
+    Rank<R>: ValidRank,
+{
+    /// Reborrow this view's backing span with signed-stride metadata. Offsets
+    /// are relative to the start of this view's span. The result holds the
+    /// exclusive borrow for as long as it is in use.
+    ///
+    /// ```compile_fail
+    /// use momiru::tensor_light::TensorViewMut;
+    ///
+    /// let mut storage = [1.0_f32, 2.0];
+    /// let mut view = TensorViewMut::new_strided([2], [1], &mut storage).unwrap();
+    /// let mut signed = view.signed_view_mut().unwrap();
+    /// let _ = view.signed_view_mut().unwrap();
+    /// signed.set([0], 3.0).unwrap();
+    /// ```
+    pub fn signed_view_mut(&mut self) -> Result<SignedTensorViewMut<'_, R>, TensorError> {
+        SignedTensorViewMut::new(
+            *self.shape.dims(),
+            self.shape.signed_strides(),
+            0,
+            self.data,
+        )
+    }
+}
+
 impl<const R: usize> Tensor<f32, R>
 where
     Rank<R>: ValidRank,
 {
     pub fn signed_view_mut(&mut self) -> Result<SignedTensorViewMut<'_, R>, TensorError> {
         let dims = *self.shape().dims();
-        let mut strides = [0isize; R];
-        for (dst, &src) in strides.iter_mut().zip(self.shape().strides()) {
-            *dst = isize::try_from(src).map_err(|_| TensorError::ShapeOverflow)?;
-        }
+        let strides = self.shape().signed_strides();
         SignedTensorViewMut::new(dims, strides, 0, self.as_mut_slice())
     }
 
     /// Reverse one axis without copying; obtain a writable view of the same
     /// backing allocation. Requires exclusive borrowing of the Tensor.
-    pub fn flip_view_mut(&mut self, axis: usize) -> Result<SignedTensorViewMut<'_, R>, TensorError> {
+    pub fn flip_view_mut(
+        &mut self,
+        axis: usize,
+    ) -> Result<SignedTensorViewMut<'_, R>, TensorError> {
         self.signed_view_mut()?.flip_mut(axis)
     }
 
     /// Checked, zero-copy mutable transpose directly from the canonical Tensor.
-    pub fn transpose_view_mut(&mut self, a: usize, b: usize)
-        -> Result<SignedTensorViewMut<'_, R>, TensorError>
-    {
+    pub fn transpose_view_mut(
+        &mut self,
+        a: usize,
+        b: usize,
+    ) -> Result<SignedTensorViewMut<'_, R>, TensorError> {
         self.signed_view_mut()?.transpose_mut(a, b)
     }
 
     /// Checked, zero-copy mutable axis move directly from Tensor.
-    pub fn movedim_view_mut(&mut self, from: usize, to: usize)
-        -> Result<SignedTensorViewMut<'_, R>, TensorError>
-    {
+    pub fn movedim_view_mut(
+        &mut self,
+        from: usize,
+        to: usize,
+    ) -> Result<SignedTensorViewMut<'_, R>, TensorError> {
         self.signed_view_mut()?.movedim_mut(from, to)
     }
 
     /// Checked, zero-copy mutable axis range directly from Tensor.
-    pub fn narrow_view_mut(&mut self, axis: usize, start: usize, length: usize)
-        -> Result<SignedTensorViewMut<'_, R>, TensorError>
-    {
+    pub fn narrow_view_mut(
+        &mut self,
+        axis: usize,
+        start: usize,
+        length: usize,
+    ) -> Result<SignedTensorViewMut<'_, R>, TensorError> {
         self.signed_view_mut()?.narrow_mut(axis, start, length)
     }
 
     /// Merge an affine axis group without copying, directly from Tensor.
-    pub fn flatten_view_mut<const OUT: usize>(&mut self, start: usize, end: usize)
-        -> Result<SignedTensorViewMut<'_, OUT>, TensorError>
-    where Rank<OUT>: ValidRank,
+    pub fn flatten_view_mut<const OUT: usize>(
+        &mut self,
+        start: usize,
+        end: usize,
+    ) -> Result<SignedTensorViewMut<'_, OUT>, TensorError>
+    where
+        Rank<OUT>: ValidRank,
     {
         self.signed_view_mut()?.flatten_view_mut::<OUT>(start, end)
     }
 
     /// Zero-copy mutable swap of two axes on the primary Tensor API.
-    pub fn swapaxes_view_mut(&mut self, a: usize, b: usize)
-        -> Result<SignedTensorViewMut<'_, R>, TensorError>
-    {
+    pub fn swapaxes_view_mut(
+        &mut self,
+        a: usize,
+        b: usize,
+    ) -> Result<SignedTensorViewMut<'_, R>, TensorError> {
         self.signed_view_mut()?.swapaxes_mut(a, b)
     }
 
     /// Mutable singleton-axis insertion without allocating or copying.
-    pub fn unsqueeze_view_mut<const OUT: usize>(&mut self, axis: usize)
-        -> Result<SignedTensorViewMut<'_, OUT>, TensorError>
-    where Rank<OUT>: ValidRank,
+    pub fn unsqueeze_view_mut<const OUT: usize>(
+        &mut self,
+        axis: usize,
+    ) -> Result<SignedTensorViewMut<'_, OUT>, TensorError>
+    where
+        Rank<OUT>: ValidRank,
     {
         self.signed_view_mut()?.unsqueeze_mut::<OUT>(axis)
     }
 
     /// Mutable singleton-axis removal without allocating or copying.
-    pub fn squeeze_axis_view_mut<const OUT: usize>(&mut self, axis: usize)
-        -> Result<SignedTensorViewMut<'_, OUT>, TensorError>
-    where Rank<OUT>: ValidRank,
+    pub fn squeeze_axis_view_mut<const OUT: usize>(
+        &mut self,
+        axis: usize,
+    ) -> Result<SignedTensorViewMut<'_, OUT>, TensorError>
+    where
+        Rank<OUT>: ValidRank,
     {
         self.signed_view_mut()?.squeeze_axis_mut::<OUT>(axis)
     }
 
     /// Mutable forward-contiguous zero-copy reshape directly on Tensor.
-    pub fn reshape_view_mut<const OUT: usize>(&mut self, dims: [usize; OUT])
-        -> Result<SignedTensorViewMut<'_, OUT>, TensorError>
-    where Rank<OUT>: ValidRank,
+    pub fn reshape_view_mut<const OUT: usize>(
+        &mut self,
+        dims: [usize; OUT],
+    ) -> Result<SignedTensorViewMut<'_, OUT>, TensorError>
+    where
+        Rank<OUT>: ValidRank,
     {
         self.signed_view_mut()?.reshape_view_mut::<OUT>(dims)
     }
@@ -445,87 +574,113 @@ where
     /// Tensor-first consuming signed slice while its exclusive mutable borrow
     /// remains alive. Returns one validated, injective mutable view only.
     #[inline]
-    pub fn slice_axis_signed_mut(&mut self, axis: usize, spec: SignedSliceSpec)
-        -> Result<SignedTensorViewMut<'_, R>, TensorError>
-    {
+    pub fn slice_axis_signed_mut(
+        &mut self,
+        axis: usize,
+        spec: SignedSliceSpec,
+    ) -> Result<SignedTensorViewMut<'_, R>, TensorError> {
         self.signed_view_mut()?.slice_axis_mut(axis, spec)
     }
 
     /// Tensor-first writable permutation: the temporary view is moved, never
     /// cloned, and the entire physical mapping is revalidated for injectivity.
     #[inline]
-    pub fn permute_signed_mut(&mut self, axes: [usize; R])
-        -> Result<SignedTensorViewMut<'_, R>, TensorError>
-    {
+    pub fn permute_signed_mut(
+        &mut self,
+        axes: [usize; R],
+    ) -> Result<SignedTensorViewMut<'_, R>, TensorError> {
         self.signed_view_mut()?.permute_mut(axes)
     }
 
     /// Reverse exactly one axis while preserving the sole mutable borrow.
     /// The checked signed view constructor revalidates bounds and injectivity.
     #[inline]
-    pub fn flip_signed_mut(&mut self, axis: usize)
-        -> Result<SignedTensorViewMut<'_, R>, TensorError>
-    {
+    pub fn flip_signed_mut(
+        &mut self,
+        axis: usize,
+    ) -> Result<SignedTensorViewMut<'_, R>, TensorError> {
         self.signed_view_mut()?.flip_mut(axis)
     }
 
     /// Reorder axes of the exclusive Tensor without copying payload values.
     #[inline]
-    pub fn transpose_signed_mut(&mut self, a: usize, b: usize)
-        -> Result<SignedTensorViewMut<'_, R>, TensorError>
-    {
+    pub fn transpose_signed_mut(
+        &mut self,
+        a: usize,
+        b: usize,
+    ) -> Result<SignedTensorViewMut<'_, R>, TensorError> {
         self.signed_view_mut()?.transpose_mut(a, b)
     }
 
     #[inline]
-    pub fn swapaxes_signed_mut(&mut self, a: usize, b: usize)
-        -> Result<SignedTensorViewMut<'_, R>, TensorError>
-    {
+    pub fn swapaxes_signed_mut(
+        &mut self,
+        a: usize,
+        b: usize,
+    ) -> Result<SignedTensorViewMut<'_, R>, TensorError> {
         self.signed_view_mut()?.swapaxes_mut(a, b)
     }
 
     #[inline]
-    pub fn movedim_signed_mut(&mut self, from: usize, to: usize)
-        -> Result<SignedTensorViewMut<'_, R>, TensorError>
-    {
+    pub fn movedim_signed_mut(
+        &mut self,
+        from: usize,
+        to: usize,
+    ) -> Result<SignedTensorViewMut<'_, R>, TensorError> {
         self.signed_view_mut()?.movedim_mut(from, to)
     }
 
     #[inline]
-    pub fn narrow_signed_mut(&mut self, axis: usize, start: usize, length: usize)
-        -> Result<SignedTensorViewMut<'_, R>, TensorError>
-    {
+    pub fn narrow_signed_mut(
+        &mut self,
+        axis: usize,
+        start: usize,
+        length: usize,
+    ) -> Result<SignedTensorViewMut<'_, R>, TensorError> {
         self.signed_view_mut()?.narrow_mut(axis, start, length)
     }
 
     #[inline]
-    pub fn flatten_signed_mut<const OUT: usize>(&mut self, start: usize, end: usize)
-        -> Result<SignedTensorViewMut<'_, OUT>, TensorError>
-    where Rank<OUT>: ValidRank,
+    pub fn flatten_signed_mut<const OUT: usize>(
+        &mut self,
+        start: usize,
+        end: usize,
+    ) -> Result<SignedTensorViewMut<'_, OUT>, TensorError>
+    where
+        Rank<OUT>: ValidRank,
     {
         self.signed_view_mut()?.flatten_view_mut::<OUT>(start, end)
     }
 
     #[inline]
-    pub fn reshape_signed_mut<const OUT: usize>(&mut self, dims: [usize; OUT])
-        -> Result<SignedTensorViewMut<'_, OUT>, TensorError>
-    where Rank<OUT>: ValidRank,
+    pub fn reshape_signed_mut<const OUT: usize>(
+        &mut self,
+        dims: [usize; OUT],
+    ) -> Result<SignedTensorViewMut<'_, OUT>, TensorError>
+    where
+        Rank<OUT>: ValidRank,
     {
         self.signed_view_mut()?.reshape_view_mut::<OUT>(dims)
     }
 
     #[inline]
-    pub fn unsqueeze_signed_mut<const OUT: usize>(&mut self, axis: usize)
-        -> Result<SignedTensorViewMut<'_, OUT>, TensorError>
-    where Rank<OUT>: ValidRank,
+    pub fn unsqueeze_signed_mut<const OUT: usize>(
+        &mut self,
+        axis: usize,
+    ) -> Result<SignedTensorViewMut<'_, OUT>, TensorError>
+    where
+        Rank<OUT>: ValidRank,
     {
         self.signed_view_mut()?.unsqueeze_mut::<OUT>(axis)
     }
 
     #[inline]
-    pub fn squeeze_axis_signed_mut<const OUT: usize>(&mut self, axis: usize)
-        -> Result<SignedTensorViewMut<'_, OUT>, TensorError>
-    where Rank<OUT>: ValidRank,
+    pub fn squeeze_axis_signed_mut<const OUT: usize>(
+        &mut self,
+        axis: usize,
+    ) -> Result<SignedTensorViewMut<'_, OUT>, TensorError>
+    where
+        Rank<OUT>: ValidRank,
     {
         self.signed_view_mut()?.squeeze_axis_mut::<OUT>(axis)
     }
@@ -533,9 +688,13 @@ where
     /// A signed-stride mutable view is available only after a conservative
     /// proof that logical indices never alias one another physically.
     pub fn as_strided_signed_mut<const OUT: usize>(
-        &mut self, dims: [usize; OUT], strides: [isize; OUT], origin: isize,
+        &mut self,
+        dims: [usize; OUT],
+        strides: [isize; OUT],
+        origin: isize,
     ) -> Result<SignedTensorViewMut<'_, OUT>, TensorError>
-    where Rank<OUT>: ValidRank,
+    where
+        Rank<OUT>: ValidRank,
     {
         SignedTensorViewMut::new(dims, strides, origin, self.as_mut_slice())
     }

@@ -142,13 +142,19 @@ where
     Rank<R>: ValidRank,
 {
     #[inline]
-    pub const fn all() -> Self { Self::All }
+    pub const fn all() -> Self {
+        Self::All
+    }
 
     pub fn explicit(axes: &[usize]) -> Result<Self, TensorError> {
         let mut selected = [false; R];
-        if axes.len() > R { return Err(TensorError::InvalidReductionAxes); }
+        if axes.len() > R {
+            return Err(TensorError::InvalidReductionAxes);
+        }
         for &axis in axes {
-            if axis >= R || selected[axis] { return Err(TensorError::InvalidReductionAxes); }
+            if axis >= R || selected[axis] {
+                return Err(TensorError::InvalidReductionAxes);
+            }
             selected[axis] = true;
         }
         Ok(Self::Explicit(selected))
@@ -160,7 +166,9 @@ where
 
     #[inline]
     pub fn selects(&self, axis: usize) -> bool {
-        if axis >= R { return false; }
+        if axis >= R {
+            return false;
+        }
         match self {
             Self::All => true,
             Self::Explicit(selected) => selected[axis],
@@ -189,13 +197,21 @@ where
 
     /// Validate keepdims and the caller-chosen compile-time output rank.
     pub fn output_dims<const OUT: usize>(
-        &self, input: [usize; R], keepdims: bool,
+        &self,
+        input: [usize; R],
+        keepdims: bool,
     ) -> Result<[usize; OUT], TensorError>
     where
         Rank<OUT>: ValidRank,
     {
-        let expected = if keepdims { R } else { R - self.selected_count() };
-        if OUT != expected { return Err(TensorError::InvalidReductionAxes); }
+        let expected = if keepdims {
+            R
+        } else {
+            R - self.selected_count()
+        };
+        if OUT != expected {
+            return Err(TensorError::InvalidReductionAxes);
+        }
         let mut dims = [0usize; OUT];
         let mut dst = 0usize;
         for (src, dim) in input.iter().copied().enumerate() {
@@ -217,16 +233,24 @@ where
     /// input domain has cardinality zero. An output with zero cells is *not*
     /// an evaluated empty reduction slice.
     pub fn evaluates_empty_slice<const OUT: usize>(
-        &self, input: [usize; R], keepdims: bool,
+        &self,
+        input: [usize; R],
+        keepdims: bool,
     ) -> Result<bool, TensorError>
     where
         Rank<OUT>: ValidRank,
     {
         let output = self.output_dims::<OUT>(input, keepdims)?;
-        if output.contains(&0) { return Ok(false); }
-        if self.is_explicit_empty() { return Ok(false); }
+        if output.contains(&0) {
+            return Ok(false);
+        }
+        if self.is_explicit_empty() {
+            return Ok(false);
+        }
         for (axis, extent) in input.iter().enumerate() {
-            if self.selects(axis) && *extent == 0 { return Ok(true); }
+            if self.selects(axis) && *extent == 0 {
+                return Ok(true);
+            }
         }
         Ok(false)
     }

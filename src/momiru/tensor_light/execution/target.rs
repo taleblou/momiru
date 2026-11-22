@@ -597,25 +597,33 @@ impl HardwareContract {
                     && gpu.max_oversized_dynamic_shared_bytes_per_block
                         < gpu.max_dynamic_shared_bytes_per_block)
                 || gpu.max_shared_bytes_per_sm == 0
-                || gpu.max_block_dim.iter().any(|&v| v == 0)
-                || gpu.max_grid_dim.iter().any(|&v| v == 0)
+                || gpu.max_block_dim.contains(&0)
+                || gpu.max_grid_dim.contains(&0)
                 || gpu.locality_domain_count == 0
                 || gpu.memory_sync_domain_count == 0
                 || gpu.greatest_stream_priority > gpu.least_stream_priority
             {
                 return Err(PlanError::InvalidHardwareContract);
             }
-            if gpu.features.contains(gpu_feature::PAGEABLE_HOST_MEMORY_USES_HOST_PAGE_TABLES)
-                && !gpu.features.contains(gpu_feature::PAGEABLE_HOST_MEMORY_ACCESS)
+            if gpu
+                .features
+                .contains(gpu_feature::PAGEABLE_HOST_MEMORY_USES_HOST_PAGE_TABLES)
+                && !gpu
+                    .features
+                    .contains(gpu_feature::PAGEABLE_HOST_MEMORY_ACCESS)
             {
                 return Err(PlanError::InvalidHardwareContract);
             }
-            if gpu.features.contains(gpu_feature::DIRECT_MANAGED_MEMORY_ACCESS_FROM_HOST)
+            if gpu
+                .features
+                .contains(gpu_feature::DIRECT_MANAGED_MEMORY_ACCESS_FROM_HOST)
                 && !gpu.features.contains(gpu_feature::UNIFIED_MEMORY)
             {
                 return Err(PlanError::InvalidHardwareContract);
             }
-            if gpu.features.contains(gpu_feature::CONCURRENT_MANAGED_ACCESS)
+            if gpu
+                .features
+                .contains(gpu_feature::CONCURRENT_MANAGED_ACCESS)
                 && !gpu.features.contains(gpu_feature::UNIFIED_MEMORY)
             {
                 return Err(PlanError::InvalidHardwareContract);
@@ -625,18 +633,24 @@ impl HardwareContract {
             {
                 return Err(PlanError::InvalidHardwareContract);
             }
-            if gpu.features.contains(gpu_feature::CAN_USE_HOST_POINTER_FOR_REGISTERED_MEMORY)
+            if gpu
+                .features
+                .contains(gpu_feature::CAN_USE_HOST_POINTER_FOR_REGISTERED_MEMORY)
                 && !gpu.features.contains(gpu_feature::HOST_REGISTER_SUPPORTED)
             {
                 return Err(PlanError::InvalidHardwareContract);
             }
-            if gpu.features.contains(gpu_feature::PROGRAMMATIC_DEPENDENT_LAUNCH)
+            if gpu
+                .features
+                .contains(gpu_feature::PROGRAMMATIC_DEPENDENT_LAUNCH)
                 && gpu.compute_major < 9
             {
                 return Err(PlanError::InvalidHardwareContract);
             }
             if gpu.features.contains(gpu_feature::BATCHED_MANAGED_PREFETCH)
-                && !gpu.features.contains(gpu_feature::CONCURRENT_MANAGED_ACCESS)
+                && !gpu
+                    .features
+                    .contains(gpu_feature::CONCURRENT_MANAGED_ACCESS)
             {
                 return Err(PlanError::InvalidHardwareContract);
             }
@@ -664,13 +678,15 @@ impl HardwareContract {
                 return Err(PlanError::InvalidHardwareContract);
             }
             if gpu.features.contains(gpu_feature::MULTICAST_MEMORY) {
-                if !gpu.features.contains(gpu_feature::VIRTUAL_MEMORY_MANAGEMENT)
+                if !gpu
+                    .features
+                    .contains(gpu_feature::VIRTUAL_MEMORY_MANAGEMENT)
                     || gpu.multicast_min_granularity_bytes == 0
                     || gpu.multicast_recommended_granularity_bytes
                         < gpu.multicast_min_granularity_bytes
-                    || gpu.multicast_recommended_granularity_bytes
-                        % gpu.multicast_min_granularity_bytes
-                        != 0
+                    || !gpu
+                        .multicast_recommended_granularity_bytes
+                        .is_multiple_of(gpu.multicast_min_granularity_bytes)
                 {
                     return Err(PlanError::InvalidHardwareContract);
                 }
@@ -698,8 +714,6 @@ impl HardwareContract {
         Ok(())
     }
 }
-
-
 
 // =============================================================================
 // Unified target-native artifact reference
@@ -793,4 +807,3 @@ pub struct LibraryAlgorithmPlan {
     pub runtime_heuristics_disabled: bool,
     pub runtime_autotune_disabled: bool,
 }
-

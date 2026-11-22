@@ -125,15 +125,16 @@
 //! capability/resource binding, then central replay of the frozen schedule.
 
 use super::ir::{CanonicalWorkload, MemoryTopologyContract};
-use std::sync::Arc;
-use super::{PlanError, StorageId};
-use crate::tensor_light::tensor::DType;
 use super::plan::{
     CpuGpuSlice, CpuKernelPlan, DeviceAllocationPolicy, ExecutionTarget, FrozenExecutionPlan,
-    FrozenNode, GpuGraphSegmentPlan, GpuKernelPlan, HostBoundaryClass, KernelFamily, MemoryClass, Placement, ResidencyPolicy,
-    ScheduleItem, StorageAccess, SyncKind, SyncPlan, TensorStoragePlan, TransferBatchPlan, TransferKind, TransferPlan,
+    FrozenNode, GpuGraphSegmentPlan, GpuKernelPlan, HostBoundaryClass, KernelFamily, MemoryClass,
+    Placement, ResidencyPolicy, ScheduleItem, StorageAccess, SyncKind, SyncPlan, TensorStoragePlan,
+    TransferBatchPlan, TransferKind, TransferPlan,
 };
 use super::target::{gpu_feature, HardwareContract};
+use super::{PlanError, StorageId};
+use crate::tensor_light::tensor::DType;
+use std::sync::Arc;
 
 // =============================================================================
 // Exact plan database
@@ -158,12 +159,9 @@ pub enum PlanResolveError {
 /// The input is sorted once while constructing PlanDb. No allocation or
 /// optimization decision occurs during exact resolution.
 #[inline]
-fn exact_key_window(index: &[(u64, u64, usize)], needle: (u64, u64))
-    -> core::ops::Range<usize>
-{
+fn exact_key_window(index: &[(u64, u64, usize)], needle: (u64, u64)) -> core::ops::Range<usize> {
     let lower = index.partition_point(|entry| (entry.0, entry.1) < needle);
-    let upper = lower + index[lower..]
-        .partition_point(|entry| (entry.0, entry.1) == needle);
+    let upper = lower + index[lower..].partition_point(|entry| (entry.0, entry.1) == needle);
     lower..upper
 }
 
@@ -173,17 +171,14 @@ fn exact_key_window(index: &[(u64, u64, usize)], needle: (u64, u64))
 /// The index is already sorted by its two digests, and the supplied predicate
 /// compares complete canonical identities only inside one collision bucket.
 /// A quadratic scan is bounded by bucket size, which is normally one.
-fn duplicate_exact_identity<F>(
-    index: &[(u64, u64, usize)], mut identical: F,
-) -> bool
+fn duplicate_exact_identity<F>(index: &[(u64, u64, usize)], mut identical: F) -> bool
 where
     F: FnMut(usize, usize) -> bool,
 {
     let mut begin = 0usize;
     while begin < index.len() {
         let signature = (index[begin].0, index[begin].1);
-        let end = begin + index[begin..]
-            .partition_point(|entry| (entry.0, entry.1) == signature);
+        let end = begin + index[begin..].partition_point(|entry| (entry.0, entry.1) == signature);
         for current in begin + 1..end {
             for previous in begin..current {
                 if identical(index[previous].2, index[current].2) {
@@ -217,7 +212,8 @@ impl PlanDb {
     /// checked at the exact binding boundary (they are not immutable).
     pub(crate) fn new(plans: &'static [FrozenExecutionPlan]) -> Result<Self, PlanError> {
         let mut key_index = Vec::new();
-        key_index.try_reserve_exact(plans.len())
+        key_index
+            .try_reserve_exact(plans.len())
             .map_err(|_| PlanError::PlanLookupIndexAllocationFailed)?;
         for (index, plan) in plans.iter().enumerate() {
             // FrozenExecutionPlan::validate is immutable structural/evidence
@@ -253,16 +249,11 @@ impl PlanDb {
     ) -> Result<&'static FrozenExecutionPlan, PlanResolveError> {
         let signature = workload.signature();
         let key = signature.plan_key();
-        let range = exact_key_window(
-            &self.key_index, (key.signature_hi, key.signature_lo),
-        );
+        let range = exact_key_window(&self.key_index, (key.signature_hi, key.signature_lo));
         let mut found: Option<&'static FrozenExecutionPlan> = None;
         for &(_, _, original_index) in &self.key_index[range] {
             let plan = &self.plans[original_index];
-            if plan.key == key
-                && plan.workload == signature
-                && plan.canonical == *workload
-            {
+            if plan.key == key && plan.workload == signature && plan.canonical == *workload {
                 if found.is_some() {
                     return Err(PlanResolveError::AmbiguousExactPlan);
                 }
@@ -345,11 +336,21 @@ pub trait BindingElement: binding_element_sealed::Sealed + Copy + 'static {
     const DTYPE: DType;
 }
 
-impl BindingElement for f32 { const DTYPE: DType = DType::F32; }
-impl BindingElement for i32 { const DTYPE: DType = DType::I32; }
-impl BindingElement for i64 { const DTYPE: DType = DType::I64; }
-impl BindingElement for u8 { const DTYPE: DType = DType::U8; }
-impl BindingElement for u64 { const DTYPE: DType = DType::U64; }
+impl BindingElement for f32 {
+    const DTYPE: DType = DType::F32;
+}
+impl BindingElement for i32 {
+    const DTYPE: DType = DType::I32;
+}
+impl BindingElement for i64 {
+    const DTYPE: DType = DType::I64;
+}
+impl BindingElement for u8 {
+    const DTYPE: DType = DType::U8;
+}
+impl BindingElement for u64 {
+    const DTYPE: DType = DType::U64;
+}
 
 /// One external storage binding. Its lifetime ties every safe host binding or
 /// owner-tied raw handle to the complete bound execution that retains it.
@@ -477,17 +478,20 @@ impl BufferHandle {
 /// pointer arithmetic. Empty ranges require no formed or dereferenced pointer.
 #[inline(always)]
 fn host_byte_range_representable(address: usize, bytes: usize) -> bool {
-    bytes == 0 || (address != 0
-        && bytes <= isize::MAX as usize
-        && address.checked_add(bytes).is_some())
+    bytes == 0
+        || (address != 0 && bytes <= isize::MAX as usize && address.checked_add(bytes).is_some())
 }
 
 /// Device virtual addresses use the exact u64 native-address ABI of this
 /// limited CUDA/HIP-style binding form; they are NOT host Rust pointers.
 #[inline(always)]
 fn device_byte_range_representable(address: u64, bytes: usize) -> bool {
-    if bytes == 0 { return true; }
-    let Ok(native_bytes) = u64::try_from(bytes) else { return false; };
+    if bytes == 0 {
+        return true;
+    }
+    let Ok(native_bytes) = u64::try_from(bytes) else {
+        return false;
+    };
     address != 0 && address.checked_add(native_bytes).is_some()
 }
 
@@ -501,15 +505,29 @@ fn buffer_address_ranges_representable(buffer: BufferHandle) -> bool {
             host_byte_range_representable(h.address, h.bytes)
         }
         BufferHandle::Device(h) => device_byte_range_representable(h.address, h.bytes),
-        BufferHandle::HostMappedZeroCopy { host, device_address, .. } => {
+        BufferHandle::HostMappedZeroCopy {
+            host,
+            device_address,
+            ..
+        } => {
             host_byte_range_representable(host.address, host.bytes)
                 && device_byte_range_representable(device_address, host.bytes)
         }
-        BufferHandle::Unified { host_address, device_address, bytes, .. } => {
+        BufferHandle::Unified {
+            host_address,
+            device_address,
+            bytes,
+            ..
+        } => {
             host_byte_range_representable(host_address, bytes)
                 && device_byte_range_representable(device_address, bytes)
         }
-        BufferHandle::External { host_address, device_address, bytes, .. } => {
+        BufferHandle::External {
+            host_address,
+            device_address,
+            bytes,
+            ..
+        } => {
             host_address.is_none_or(|addr| host_byte_range_representable(addr, bytes))
                 && device_address.is_none_or(|addr| device_byte_range_representable(addr, bytes))
         }
@@ -538,7 +556,9 @@ fn byte_ranges_overlap(a_start: u128, a_bytes: usize, b_start: u128, b_bytes: us
 /// host address ranges may be compared within the same process address space.
 #[inline]
 fn external_buffers_proven_disjoint(a: BufferHandle, b: BufferHandle) -> bool {
-    if a.bytes() == 0 || b.bytes() == 0 { return true; }
+    if a.bytes() == 0 || b.bytes() == 0 {
+        return true;
+    }
     match (a, b) {
         (
             BufferHandle::Host(a) | BufferHandle::HostPinned(a),
@@ -596,11 +616,11 @@ fn external_device_matches_frozen_topology(
 }
 
 #[cfg(test)]
-#[path = "../../../tests/tensor_light/unit/execution/runtime/external_device_mapping_tests.rs"]
-mod external_device_mapping_tests;
-#[cfg(test)]
 #[path = "../../../tests/tensor_light/unit/execution/runtime/external_arena_coverage_tests.rs"]
 mod external_arena_coverage_tests;
+#[cfg(test)]
+#[path = "../../../tests/tensor_light/unit/execution/runtime/external_device_mapping_tests.rs"]
+mod external_device_mapping_tests;
 impl FrozenExecutionPlan {
     fn storage_requires_external_binding(
         &self,
@@ -609,13 +629,18 @@ impl FrozenExecutionPlan {
         if storage.external_alias_of.is_some() {
             return Ok(false);
         }
-        let arena = self.arena_of_storage(storage.id).ok_or(PlanError::MissingArena)?;
+        let arena = self
+            .arena_of_storage(storage.id)
+            .ok_or(PlanError::MissingArena)?;
         Ok(storage.residency == ResidencyPolicy::ExternalBound
             || arena.class == MemoryClass::External
             || arena.device_allocation == DeviceAllocationPolicy::External)
     }
 
-    pub fn validate_external_bindings(&self, bindings: &[StorageBinding<'_>]) -> Result<(), PlanError> {
+    pub fn validate_external_bindings(
+        &self,
+        bindings: &[StorageBinding<'_>],
+    ) -> Result<(), PlanError> {
         let mut i = 0usize;
         while i < bindings.len() {
             let binding = &bindings[i];
@@ -633,8 +658,10 @@ impl FrozenExecutionPlan {
             if binding.dtype != tensor.dtype {
                 return Err(PlanError::InvalidExternalBinding);
             }
-            if matches!(storage.access, StorageAccess::WriteOnly | StorageAccess::ReadWrite)
-                && binding.access != BindingAccess::ReadWrite
+            if matches!(
+                storage.access,
+                StorageAccess::WriteOnly | StorageAccess::ReadWrite
+            ) && binding.access != BindingAccess::ReadWrite
             {
                 return Err(PlanError::InvalidExternalBinding);
             }
@@ -647,7 +674,9 @@ impl FrozenExecutionPlan {
                 j += 1;
             }
 
-            let arena = self.arena_of_storage(storage.id).ok_or(PlanError::MissingArena)?;
+            let arena = self
+                .arena_of_storage(storage.id)
+                .ok_or(PlanError::MissingArena)?;
             // The bound address is the arena base. The original storage-only
             // length test admitted undersized foreign allocations whenever
             // a frozen slot had a nonzero offset or the arena had other slots.
@@ -658,7 +687,9 @@ impl FrozenExecutionPlan {
             {
                 return Err(PlanError::InvalidExternalBinding);
             }
-            let slot = self.find_slot(storage.slot).ok_or(PlanError::MissingMemorySlot)?;
+            let slot = self
+                .find_slot(storage.slot)
+                .ok_or(PlanError::MissingMemorySlot)?;
             // The real external pointer substitutes for an arena base. It
             // must satisfy ALL three frozen guarantees, including the arena
             // base alignment (which may exceed the slot/kernel alignment).
@@ -670,20 +701,23 @@ impl FrozenExecutionPlan {
             let nonempty = storage.physical_bytes != 0;
 
             let aligned_host = |address: usize| -> bool {
-                !nonempty || (address != 0 && address % required_alignment == 0)
+                !nonempty || (address != 0 && address.is_multiple_of(required_alignment))
             };
             let aligned_device = |address: u64| -> bool {
-                !nonempty || (address != 0 && address % required_alignment as u64 == 0)
+                !nonempty || (address != 0 && address.is_multiple_of(required_alignment as u64))
             };
 
             let valid = match (arena.class, binding.buffer) {
-                (MemoryClass::HostAligned, BufferHandle::Host(handle)) => aligned_host(handle.address),
+                (MemoryClass::HostAligned, BufferHandle::Host(handle)) => {
+                    aligned_host(handle.address)
+                }
                 (MemoryClass::HostPageableDirect, BufferHandle::Host(handle)) => {
                     aligned_host(handle.address)
                         && arena.device_ordinal.is_some_and(|device| {
                             self.find_gpu(device)
                                 .map(|gpu| {
-                                    gpu.features.contains(gpu_feature::PAGEABLE_HOST_MEMORY_ACCESS)
+                                    gpu.features
+                                        .contains(gpu_feature::PAGEABLE_HOST_MEMORY_ACCESS)
                                         && gpu.features.contains(
                                             gpu_feature::PAGEABLE_HOST_MEMORY_USES_HOST_PAGE_TABLES,
                                         )
@@ -691,10 +725,16 @@ impl FrozenExecutionPlan {
                                 .unwrap_or(false)
                         })
                 }
-                (MemoryClass::HostPinned, BufferHandle::HostPinned(handle)) => aligned_host(handle.address),
+                (MemoryClass::HostPinned, BufferHandle::HostPinned(handle)) => {
+                    aligned_host(handle.address)
+                }
                 (
                     MemoryClass::HostMappedZeroCopy,
-                    BufferHandle::HostMappedZeroCopy { host, device_address, device_ordinal },
+                    BufferHandle::HostMappedZeroCopy {
+                        host,
+                        device_address,
+                        device_ordinal,
+                    },
                 ) => {
                     aligned_host(host.address)
                         && aligned_device(device_address)
@@ -715,11 +755,17 @@ impl FrozenExecutionPlan {
                             .unwrap_or(false)
                 }
                 (MemoryClass::DeviceLocal, BufferHandle::Device(handle)) => {
-                    arena.device_ordinal == Some(handle.device_ordinal) && aligned_device(handle.address)
+                    arena.device_ordinal == Some(handle.device_ordinal)
+                        && aligned_device(handle.address)
                 }
                 (
                     MemoryClass::UnifiedManaged,
-                    BufferHandle::Unified { host_address, device_address, device_ordinal, .. },
+                    BufferHandle::Unified {
+                        host_address,
+                        device_address,
+                        device_ordinal,
+                        ..
+                    },
                 ) => {
                     // A managed allocation can have a designated owner
                     // even when its CPU access is separate from GPU execution.
@@ -730,17 +776,21 @@ impl FrozenExecutionPlan {
                         device_ordinal,
                         self.canonical.memory_topology.gpu_device_ordinals,
                         arena.device_ordinal,
-                    )
-                        && self
-                            .find_gpu(device_ordinal)
-                            .map(|gpu| gpu.features.contains(gpu_feature::UNIFIED_MEMORY))
-                            .unwrap_or(false)
+                    ) && self
+                        .find_gpu(device_ordinal)
+                        .map(|gpu| gpu.features.contains(gpu_feature::UNIFIED_MEMORY))
+                        .unwrap_or(false)
                         && aligned_host(host_address)
                         && aligned_device(device_address)
                 }
                 (
                     MemoryClass::External,
-                    BufferHandle::External { host_address, device_address, device_ordinal, .. },
+                    BufferHandle::External {
+                        host_address,
+                        device_address,
+                        device_ordinal,
+                        ..
+                    },
                 ) => {
                     let addresses_aligned = host_address.map(aligned_host).unwrap_or(true)
                         && device_address.map(aligned_device).unwrap_or(true);
@@ -1016,7 +1066,10 @@ enum ReplayStep {
     },
     GpuGraphSegment(&'static GpuGraphSegmentPlan),
     Transfer(&'static TransferPlan),
-    HostReadback { transfer: &'static TransferPlan, boundary: HostBoundaryClass },
+    HostReadback {
+        transfer: &'static TransferPlan,
+        boundary: HostBoundaryClass,
+    },
     TransferBatch(&'static TransferBatchPlan),
     Sync(&'static SyncPlan),
 }
@@ -1059,7 +1112,9 @@ impl<'a, B: BoundBackend> BoundExecution<'a, B> {
     /// the caller can access their input/output slices again.
     /// No per-replay catch_unwind closure/panic payload dispatch is required.
     pub fn replay(&mut self) -> Result<(), B::Error> {
-        let mut guard = ReplayQuiescenceGuard { backend: &mut self.backend };
+        let guard = ReplayQuiescenceGuard {
+            backend: &mut self.backend,
+        };
         Self::dispatch_frozen_steps(&mut *guard.backend, &self.replay_steps)
     }
 
@@ -1069,34 +1124,48 @@ impl<'a, B: BoundBackend> BoundExecution<'a, B> {
         for step in steps {
             match step {
                 ReplayStep::CpuNode { node, kernel } => {
-                    backend.execute_cpu_node(*node, *kernel)?;
+                    backend.execute_cpu_node(node, kernel)?;
                 }
                 ReplayStep::GpuNode { node, kernel } => {
-                    backend.execute_gpu_node(*node, *kernel)?;
+                    backend.execute_gpu_node(node, kernel)?;
                 }
-                ReplayStep::CpuSlice { node, slice_index, slice, kernel } => {
-                    backend.launch_cpu_slice(*node, *slice_index, *slice, *kernel)?;
+                ReplayStep::CpuSlice {
+                    node,
+                    slice_index,
+                    slice,
+                    kernel,
+                } => {
+                    backend.launch_cpu_slice(node, *slice_index, slice, kernel)?;
                 }
-                ReplayStep::GpuSlice { node, slice_index, slice, kernel } => {
-                    backend.launch_gpu_slice(*node, *slice_index, *slice, *kernel)?;
+                ReplayStep::GpuSlice {
+                    node,
+                    slice_index,
+                    slice,
+                    kernel,
+                } => {
+                    backend.launch_gpu_slice(node, *slice_index, slice, kernel)?;
                 }
-                ReplayStep::CpuGpuComplete { node, slice_index, slice } => {
-                    backend.complete_cpu_gpu_slice(*node, *slice_index, *slice)?;
+                ReplayStep::CpuGpuComplete {
+                    node,
+                    slice_index,
+                    slice,
+                } => {
+                    backend.complete_cpu_gpu_slice(node, *slice_index, slice)?;
                 }
                 ReplayStep::GpuGraphSegment(segment) => {
-                    backend.execute_gpu_graph_segment(*segment)?;
+                    backend.execute_gpu_graph_segment(segment)?;
                 }
                 ReplayStep::Transfer(transfer) => {
-                    backend.execute_transfer(*transfer)?;
+                    backend.execute_transfer(transfer)?;
                 }
                 ReplayStep::HostReadback { transfer, boundary } => {
-                    backend.execute_host_readback(*transfer, *boundary)?;
+                    backend.execute_host_readback(transfer, *boundary)?;
                 }
                 ReplayStep::TransferBatch(batch) => {
-                    backend.execute_transfer_batch(*batch)?;
+                    backend.execute_transfer_batch(batch)?;
                 }
                 ReplayStep::Sync(sync) => {
-                    backend.execute_sync(*sync)?;
+                    backend.execute_sync(sync)?;
                 }
             }
         }
@@ -1109,7 +1178,8 @@ impl<'a, B: BoundBackend> BoundExecution<'a, B> {
 /// No later push can exceed this pre-reserved schedule-length bound.
 fn reserve_replay_steps(bound: usize) -> Result<Vec<ReplayStep>, PlanError> {
     let mut steps = Vec::new();
-    steps.try_reserve_exact(bound)
+    steps
+        .try_reserve_exact(bound)
         .map_err(|_| PlanError::ReplayProgramAllocationFailed)?;
     Ok(steps)
 }
@@ -1155,10 +1225,16 @@ fn build_replay_steps(plan: &'static FrozenExecutionPlan) -> Result<Vec<ReplaySt
                     Placement::CpuGpu => return Err(PlanError::InvalidCpuGpuMapping),
                 }
             }
-            ScheduleItem::CpuGpuSliceLaunch { node: node_id, slice } => {
+            ScheduleItem::CpuGpuSliceLaunch {
+                node: node_id,
+                slice,
+            } => {
                 let node = find_node(plan, node_id).ok_or(PlanError::MissingScheduleItem)?;
                 let mapping = node.cpu_gpu.ok_or(PlanError::InvalidCpuGpuMapping)?;
-                let slice_plan = mapping.slices.get(usize::from(slice)).ok_or(PlanError::InvalidCpuGpuMapping)?;
+                let slice_plan = mapping
+                    .slices
+                    .get(usize::from(slice))
+                    .ok_or(PlanError::InvalidCpuGpuMapping)?;
                 match slice_plan.target {
                     ExecutionTarget::Cpu => steps.push(ReplayStep::CpuSlice {
                         node,
@@ -1174,11 +1250,21 @@ fn build_replay_steps(plan: &'static FrozenExecutionPlan) -> Result<Vec<ReplaySt
                     }),
                 }
             }
-            ScheduleItem::CpuGpuSliceComplete { node: node_id, slice } => {
+            ScheduleItem::CpuGpuSliceComplete {
+                node: node_id,
+                slice,
+            } => {
                 let node = find_node(plan, node_id).ok_or(PlanError::MissingScheduleItem)?;
                 let mapping = node.cpu_gpu.ok_or(PlanError::InvalidCpuGpuMapping)?;
-                let slice_plan = mapping.slices.get(usize::from(slice)).ok_or(PlanError::InvalidCpuGpuMapping)?;
-                steps.push(ReplayStep::CpuGpuComplete { node, slice_index: slice, slice: slice_plan });
+                let slice_plan = mapping
+                    .slices
+                    .get(usize::from(slice))
+                    .ok_or(PlanError::InvalidCpuGpuMapping)?;
+                steps.push(ReplayStep::CpuGpuComplete {
+                    node,
+                    slice_index: slice,
+                    slice: slice_plan,
+                });
             }
             ScheduleItem::Transfer(id) => {
                 let transfer = find_transfer(plan, id).ok_or(PlanError::MissingScheduleItem)?;
@@ -1223,12 +1309,15 @@ fn build_replay_steps(plan: &'static FrozenExecutionPlan) -> Result<Vec<ReplaySt
     Ok(steps)
 }
 
-
 #[inline(always)]
 fn node_is_metadata_only_alias(node: &FrozenNode) -> bool {
     match node.placement {
-        Placement::Cpu => node.cpu.is_some_and(|kernel| kernel.family == KernelFamily::AliasView),
-        Placement::Gpu => node.gpu.is_some_and(|kernel| kernel.family == KernelFamily::AliasView),
+        Placement::Cpu => node
+            .cpu
+            .is_some_and(|kernel| kernel.family == KernelFamily::AliasView),
+        Placement::Gpu => node
+            .gpu
+            .is_some_and(|kernel| kernel.family == KernelFamily::AliasView),
         Placement::CpuGpu => false,
     }
 }
@@ -1241,12 +1330,19 @@ fn find_transfer(plan: &'static FrozenExecutionPlan, id: u32) -> Option<&'static
     plan.transfers.get(id as usize).filter(|item| item.id == id)
 }
 
-fn find_transfer_batch(plan: &'static FrozenExecutionPlan, id: u32) -> Option<&'static TransferBatchPlan> {
-    plan.transfer_batches.get(id as usize).filter(|item| item.id == id)
+fn find_transfer_batch(
+    plan: &'static FrozenExecutionPlan,
+    id: u32,
+) -> Option<&'static TransferBatchPlan> {
+    plan.transfer_batches
+        .get(id as usize)
+        .filter(|item| item.id == id)
 }
 
 fn find_sync(plan: &'static FrozenExecutionPlan, id: u32) -> Option<&'static SyncPlan> {
-    plan.synchronization.get(id as usize).filter(|item| item.id == id)
+    plan.synchronization
+        .get(id as usize)
+        .filter(|item| item.id == id)
 }
 
 #[derive(Debug)]
@@ -1262,10 +1358,18 @@ pub enum BindError<E> {
 impl<E: core::fmt::Display> core::fmt::Display for BindError<E> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::NoExactPlan => f.write_str("no exact frozen execution plan exists for the canonical workload"),
-            Self::AmbiguousExactPlan => f.write_str("more than one exact frozen execution plan matches the canonical workload"),
-            Self::InvalidPlan(error) => write!(f, "invalid frozen execution plan or binding: {error}"),
-            Self::InsufficientWorkspace => f.write_str("insufficient host workspace for the prebound frozen replay program"),
+            Self::NoExactPlan => {
+                f.write_str("no exact frozen execution plan exists for the canonical workload")
+            }
+            Self::AmbiguousExactPlan => f.write_str(
+                "more than one exact frozen execution plan matches the canonical workload",
+            ),
+            Self::InvalidPlan(error) => {
+                write!(f, "invalid frozen execution plan or binding: {error}")
+            }
+            Self::InsufficientWorkspace => {
+                f.write_str("insufficient host workspace for the prebound frozen replay program")
+            }
             Self::Backend(error) => write!(f, "backend binding/execution setup failed: {error}"),
         }
     }
@@ -1385,13 +1489,15 @@ impl<B: Backend> PreparedExecution<B> {
         &self,
         external_bindings: Vec<StorageBinding<'a>>,
     ) -> Result<BoundExecution<'a, B::Bound>, BindError<B::Error>> {
-        self.plan.validate_external_bindings(&external_bindings)
+        self.plan
+            .validate_external_bindings(&external_bindings)
             .map_err(BindError::InvalidPlan)?;
         // SAFETY: the owned Vec of lifetime-witness bindings is retained in
         // BoundExecution until AFTER the backend is dropped. Backend binding
         // must not start async work; ReplayQuiescenceGuard fences each replay.
-        let backend = unsafe { B::bind_resources(self.plan, self.capabilities, &external_bindings) }
-            .map_err(BindError::Backend)?;
+        let backend =
+            unsafe { B::bind_resources(self.plan, self.capabilities, &external_bindings) }
+                .map_err(BindError::Backend)?;
         Ok(BoundExecution {
             plan: self.plan,
             replay_steps: Arc::clone(&self.replay_steps),
@@ -1430,10 +1536,12 @@ fn prepare_workload_exact_with_capabilities<B: Backend>(
         return Err(BindError::InvalidPlan(PlanError::InvalidMemoryTopology));
     }
 
-    let plan = db.resolve_workload_exact(workload).map_err(|error| match error {
-        PlanResolveError::NoExactPlan => BindError::NoExactPlan,
-        PlanResolveError::AmbiguousExactPlan => BindError::AmbiguousExactPlan,
-    })?;
+    let plan = db
+        .resolve_workload_exact(workload)
+        .map_err(|error| match error {
+            PlanResolveError::NoExactPlan => BindError::NoExactPlan,
+            PlanResolveError::AmbiguousExactPlan => BindError::AmbiguousExactPlan,
+        })?;
     if !capabilities.matches_plan(plan) {
         return Err(BindError::InvalidPlan(PlanError::InvalidHardwareContract));
     }

@@ -145,7 +145,12 @@ where
         // Empty shapes are valid even when products of other extents overflow.
         // Their logical access set is empty; zero strides are canonical here.
         if dims.contains(&0) {
-            return Ok(Self { dims, strides: [0usize; R], len: 0, span_len: 0 });
+            return Ok(Self {
+                dims,
+                strides: [0usize; R],
+                len: 0,
+                span_len: 0,
+            });
         }
         let mut strides = [0usize; R];
         let mut stride = 1usize;
@@ -158,10 +163,16 @@ where
                 .ok_or(TensorError::ShapeOverflow)?;
         }
 
-        stride.checked_mul(core::mem::size_of::<f32>())
+        stride
+            .checked_mul(core::mem::size_of::<f32>())
             .filter(|&bytes| bytes <= isize::MAX as usize)
             .ok_or(TensorError::AllocationOverflow)?;
-        Ok(Self { dims, strides, len: stride, span_len: stride })
+        Ok(Self {
+            dims,
+            strides,
+            len: stride,
+            span_len: stride,
+        })
     }
 
     pub fn strided(dims: [usize; R], strides: [usize; R]) -> Result<Self, TensorError> {
@@ -172,7 +183,12 @@ where
         }
         // An empty mapping must not multiply any extent by a stride.
         if dims.contains(&0) {
-            return Ok(Self { dims, strides, len: 0, span_len: 0 });
+            return Ok(Self {
+                dims,
+                strides,
+                len: 0,
+                span_len: 0,
+            });
         }
         let mut len = 1usize;
         for &dim in &dims {
@@ -199,11 +215,17 @@ where
         };
 
         for count in [len, span_len] {
-            count.checked_mul(core::mem::size_of::<f32>())
+            count
+                .checked_mul(core::mem::size_of::<f32>())
                 .filter(|&bytes| bytes <= isize::MAX as usize)
                 .ok_or(TensorError::AllocationOverflow)?;
         }
-        Ok(Self { dims, strides, len, span_len })
+        Ok(Self {
+            dims,
+            strides,
+            len,
+            span_len,
+        })
     }
 
     #[inline(always)]
@@ -229,7 +251,9 @@ where
     /// Logical element cardinality (rank zero is one, any zero extent is zero).
     /// Uses previously validated shape metadata; it never recomputes a product.
     #[inline(always)]
-    pub const fn numel(&self) -> usize { self.len }
+    pub const fn numel(&self) -> usize {
+        self.len
+    }
 
     #[inline(always)]
     pub const fn span_len(&self) -> usize {
@@ -254,10 +278,14 @@ where
     }
 
     #[inline(always)]
-    pub const fn is_empty(&self) -> bool { self.len == 0 }
+    pub const fn is_empty(&self) -> bool {
+        self.len == 0
+    }
 
     #[inline(always)]
-    pub const fn is_scalar(&self) -> bool { R == 0 }
+    pub const fn is_scalar(&self) -> bool {
+        R == 0
+    }
 
     /// Structural signed-stride metadata for the canonical graph ABI.
     /// All positive strides have already been verified to fit `isize`.
@@ -266,23 +294,33 @@ where
     }
 
     #[inline(always)]
-    pub const fn ndim(&self) -> usize { R }
+    pub const fn ndim(&self) -> usize {
+        R
+    }
 
     /// Logical payload bytes for the canonical f32 Tensor/Shape. This
     /// metadata is also reused for auxiliary index/mask *geometry*, but
     /// its byte count is ALWAYS f32-sized. For actual auxiliary payload
     /// bytes use `IndexResult::nbytes()` or `PredicateMask::nbytes()`.
     #[inline(always)]
-    pub const fn nbytes(&self) -> usize { self.len * core::mem::size_of::<f32>() }
+    pub const fn nbytes(&self) -> usize {
+        self.len * core::mem::size_of::<f32>()
+    }
 
     #[inline(always)]
-    pub fn is_c_contiguous(&self) -> bool { self.is_contiguous() }
+    pub fn is_c_contiguous(&self) -> bool {
+        self.is_contiguous()
+    }
 
     pub fn is_f_contiguous(&self) -> bool {
-        if self.len == 0 { return true; }
+        if self.len == 0 {
+            return true;
+        }
         let mut expected = 1usize;
         for axis in 0..R {
-            if self.dims[axis] > 1 && self.strides[axis] != expected { return false; }
+            if self.dims[axis] > 1 && self.strides[axis] != expected {
+                return false;
+            }
             expected *= self.dims[axis];
         }
         true
@@ -312,8 +350,6 @@ where
     pub(crate) fn is_non_overlapping_for_mutation(&self) -> bool {
         // All Shape strides are representable isize values by construction.
         // The same sound certificate is used by mutable signed views.
-        super::signed_mapping_is_injective(
-            &self.dims, &self.signed_strides(), self.len,
-        )
+        super::signed_mapping_is_injective(&self.dims, &self.signed_strides(), self.len)
     }
 }

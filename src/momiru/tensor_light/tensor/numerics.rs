@@ -133,23 +133,39 @@ pub const CANONICAL_QUIET_NAN32: f32 = f32::from_bits(0x7fc0_0000);
 /// Distinguish negative zero (lower) from positive zero (higher).
 #[inline]
 pub fn canonical_minimum(a: f32, b: f32) -> f32 {
-    if a.is_nan() || b.is_nan() { return CANONICAL_QUIET_NAN32; }
+    if a.is_nan() || b.is_nan() {
+        return CANONICAL_QUIET_NAN32;
+    }
     if a == 0.0 && b == 0.0 {
-        if a.is_sign_negative() || b.is_sign_negative() { return -0.0; }
+        if a.is_sign_negative() || b.is_sign_negative() {
+            return -0.0;
+        }
         return 0.0;
     }
-    if b < a { b } else { a }
+    if b < a {
+        b
+    } else {
+        a
+    }
 }
 
 /// Canonical maximum (NaN propagates, positive zero is larger than negative).
 #[inline]
 pub fn canonical_maximum(a: f32, b: f32) -> f32 {
-    if a.is_nan() || b.is_nan() { return CANONICAL_QUIET_NAN32; }
+    if a.is_nan() || b.is_nan() {
+        return CANONICAL_QUIET_NAN32;
+    }
     if a == 0.0 && b == 0.0 {
-        if a.is_sign_positive() || b.is_sign_positive() { return 0.0; }
+        if a.is_sign_positive() || b.is_sign_positive() {
+            return 0.0;
+        }
         return -0.0;
     }
-    if b > a { b } else { a }
+    if b > a {
+        b
+    } else {
+        a
+    }
 }
 
 /// Argmin replacement rule. The first NaN wins if any NaN exists; otherwise
@@ -157,8 +173,12 @@ pub fn canonical_maximum(a: f32, b: f32) -> f32 {
 /// `best` precedes `candidate` in logical C order.
 #[inline]
 pub fn replace_argmin(best: f32, candidate: f32) -> bool {
-    if best.is_nan() { return false; }
-    if candidate.is_nan() { return true; }
+    if best.is_nan() {
+        return false;
+    }
+    if candidate.is_nan() {
+        return true;
+    }
     if best == 0.0 && candidate == 0.0 {
         return best.is_sign_positive() && candidate.is_sign_negative();
     }
@@ -168,8 +188,12 @@ pub fn replace_argmin(best: f32, candidate: f32) -> bool {
 /// Argmax replacement rule with the same first-logical-index tie policy.
 #[inline]
 pub fn replace_argmax(best: f32, candidate: f32) -> bool {
-    if best.is_nan() { return false; }
-    if candidate.is_nan() { return true; }
+    if best.is_nan() {
+        return false;
+    }
+    if candidate.is_nan() {
+        return true;
+    }
     if best == 0.0 && candidate == 0.0 {
         return best.is_sign_negative() && candidate.is_sign_positive();
     }

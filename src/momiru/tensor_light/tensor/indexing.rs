@@ -143,7 +143,9 @@ where
     pub fn checked_offset(&self, index: [usize; R]) -> Option<usize> {
         // Short-circuit before *any* multiply: empty shapes can legally have
         // huge dimensions/strides that overflow on an unrealizable coordinate.
-        if self.is_empty() { return None; }
+        if self.is_empty() {
+            return None;
+        }
         let mut offset = 0usize;
         let mut axis = 0usize;
         while axis < R {
@@ -161,7 +163,9 @@ where
 
     #[inline(always)]
     pub fn checked_offset_signed(&self, index: [isize; R]) -> Option<usize> {
-        if self.is_empty() { return None; }
+        if self.is_empty() {
+            return None;
+        }
         let mut offset = 0usize;
         let mut axis = 0usize;
         while axis < R {
@@ -200,13 +204,19 @@ where
     /// Safe reference to a Ready, exclusively owned host tensor's element.
     #[inline(always)]
     pub fn try_get_ref(&self, index: [usize; R]) -> Result<&T, TensorError> {
-        let offset = self.shape.checked_offset(index).ok_or(TensorError::IndexOutOfBounds)?;
+        let offset = self
+            .shape
+            .checked_offset(index)
+            .ok_or(TensorError::IndexOutOfBounds)?;
         Ok(unsafe { self.data.as_slice().get_unchecked(offset) })
     }
 
     #[inline(always)]
     pub fn try_get_mut(&mut self, index: [usize; R]) -> Result<&mut T, TensorError> {
-        let offset = self.shape.checked_offset(index).ok_or(TensorError::IndexOutOfBounds)?;
+        let offset = self
+            .shape
+            .checked_offset(index)
+            .ok_or(TensorError::IndexOutOfBounds)?;
         Ok(unsafe { self.data.as_mut_slice().get_unchecked_mut(offset) })
     }
 
@@ -356,7 +366,6 @@ where
     pub fn set_at(&mut self, index: [isize; R], value: f32) -> Result<(), TensorError> {
         self.set_signed(index, value)
     }
-
 }
 
 impl<T: TensorElement, const R: usize> Index<[usize; R]> for Tensor<T, R>
@@ -411,7 +420,8 @@ where
 {
     #[inline(always)]
     fn index_mut(&mut self, index: [usize; R]) -> &mut Self::Output {
-        self.get_mut(index).expect("tensor view index out of bounds")
+        self.get_mut(index)
+            .expect("tensor view index out of bounds")
     }
 }
 
@@ -462,8 +472,16 @@ impl_tuple_index!(2, (usize, usize), [0, 1]);
 impl_tuple_index!(3, (usize, usize, usize), [0, 1, 2]);
 impl_tuple_index!(4, (usize, usize, usize, usize), [0, 1, 2, 3]);
 impl_tuple_index!(5, (usize, usize, usize, usize, usize), [0, 1, 2, 3, 4]);
-impl_tuple_index!(6, (usize, usize, usize, usize, usize, usize), [0, 1, 2, 3, 4, 5]);
-impl_tuple_index!(7, (usize, usize, usize, usize, usize, usize, usize), [0, 1, 2, 3, 4, 5, 6]);
+impl_tuple_index!(
+    6,
+    (usize, usize, usize, usize, usize, usize),
+    [0, 1, 2, 3, 4, 5]
+);
+impl_tuple_index!(
+    7,
+    (usize, usize, usize, usize, usize, usize, usize),
+    [0, 1, 2, 3, 4, 5, 6]
+);
 impl_tuple_index!(
     8,
     (usize, usize, usize, usize, usize, usize, usize, usize),

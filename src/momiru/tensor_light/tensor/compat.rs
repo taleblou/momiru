@@ -128,53 +128,82 @@
 use super::{Rank, Tensor, TensorElement, TensorError, ValidRank};
 
 impl<T: TensorElement, const R: usize> Tensor<T, R>
-where Rank<R>: ValidRank,
+where
+    Rank<R>: ValidRank,
 {
     /// Compile-time rank, exposed under the same name as Generic ND.
-    #[inline(always)] pub const fn rank(&self) -> usize { R }
+    #[inline(always)]
+    pub const fn rank(&self) -> usize {
+        R
+    }
     /// No allocation: fixed-rank metadata iterator, matching Generic ND.
-    #[inline] pub fn dimensions(&self) -> impl ExactSizeIterator<Item = usize> + '_ {
+    #[inline]
+    pub fn dimensions(&self) -> impl ExactSizeIterator<Item = usize> + '_ {
         self.dims().iter().copied()
     }
-    #[inline] pub fn dim(&self, axis: usize) -> Option<usize> {
+    #[inline]
+    pub fn dim(&self, axis: usize) -> Option<usize> {
         self.dims().get(axis).copied()
     }
-    #[inline] pub fn size(&self, axis: usize) -> Option<usize> { self.dim(axis) }
-    #[inline] pub fn is_contiguous(&self) -> bool { self.is_c_contiguous() }
-    #[inline] pub fn is_fortran_contiguous(&self) -> bool { self.is_f_contiguous() }
-    #[inline] pub fn is_unique_certified(&self) -> bool { self.is_unique() }
-    #[inline] pub fn is_exhaustive_certified(&self) -> bool { self.is_exhaustive() }
+    #[inline]
+    pub fn size(&self, axis: usize) -> Option<usize> {
+        self.dim(axis)
+    }
+    #[inline]
+    pub fn is_contiguous(&self) -> bool {
+        self.is_c_contiguous()
+    }
+    #[inline]
+    pub fn is_fortran_contiguous(&self) -> bool {
+        self.is_f_contiguous()
+    }
+    #[inline]
+    pub fn is_unique_certified(&self) -> bool {
+        self.is_unique()
+    }
+    #[inline]
+    pub fn is_exhaustive_certified(&self) -> bool {
+        self.is_exhaustive()
+    }
 
     /// Constant-time physical borrow of the logical C-order contiguous data.
     /// Owning fixed-rank f32 tensors are always contiguous.
-    #[inline(always)] pub fn as_contiguous_slice(&self) -> Option<&[T]> {
+    #[inline(always)]
+    pub fn as_contiguous_slice(&self) -> Option<&[T]> {
         Some(self.as_slice())
     }
     /// No metadata allocation, offset arithmetic or layout traversal.
-    #[inline(always)] pub fn as_contiguous_mut_slice(&mut self) -> Option<&mut [T]> {
+    #[inline(always)]
+    pub fn as_contiguous_mut_slice(&mut self) -> Option<&mut [T]> {
         Some(self.as_mut_slice())
     }
     /// Fast-path flattened reference lookup. Unlike N-D get, no rank-axes loop.
-    #[inline(always)] pub fn get_linear(&self, linear: usize) -> Option<&T> {
+    #[inline(always)]
+    pub fn get_linear(&self, linear: usize) -> Option<&T> {
         self.as_slice().get(linear)
     }
     /// Fast-path flattened mutable lookup, still checked for bounds.
-    #[inline(always)] pub fn get_linear_mut(&mut self, linear: usize) -> Option<&mut T> {
+    #[inline(always)]
+    pub fn get_linear_mut(&mut self, linear: usize) -> Option<&mut T> {
         self.as_mut_slice().get_mut(linear)
     }
     /// Zero-copy extraction only when the tensor actually adopted a Vec.
     /// Aligned non-Vec allocations are NOT silently copied.
-    #[inline] pub fn try_into_contiguous_vec(self) -> Result<Vec<T>, Self> {
+    #[inline]
+    pub fn try_into_contiguous_vec(self) -> Result<Vec<T>, Self> {
         self.try_into_vec()
     }
     /// Explicit host-only copy alias; no plan-free numerical computation.
-    #[inline] pub fn copy_from_host(&mut self, src: &Self) -> Result<(), TensorError> {
+    #[inline]
+    pub fn copy_from_host(&mut self, src: &Self) -> Result<(), TensorError> {
         self.copy_from_tensor(src)
     }
-    #[inline] pub fn copy_from_host_copy(&mut self, src: &Self) -> Result<(), TensorError> {
+    #[inline]
+    pub fn copy_from_host_copy(&mut self, src: &Self) -> Result<(), TensorError> {
         self.copy_from_tensor(src)
     }
-    #[inline] pub fn try_fill_in_place(&mut self, value: T) -> Result<(), TensorError> {
+    #[inline]
+    pub fn try_fill_in_place(&mut self, value: T) -> Result<(), TensorError> {
         self.fill_in_place(value);
         Ok(())
     }
@@ -182,7 +211,8 @@ where Rank<R>: ValidRank,
     /// Validated reference-returning coordinate-slice load.
     #[inline]
     pub fn try_get(&self, indices: &[usize]) -> Result<&T, TensorError> {
-        let coords: [usize; R] = indices.try_into()
+        let coords: [usize; R] = indices
+            .try_into()
             .map_err(|_| TensorError::IndexOutOfBounds)?;
         self.try_get_ref(coords)
     }
@@ -191,18 +221,26 @@ where Rank<R>: ValidRank,
     /// For N=0 returns an empty array; for N>0 validates every position.
     /// This host-only indexing helper does not bypass plan-bound arithmetic.
     pub fn get_disjoint_mut<const N: usize>(
-        &mut self, indices: [&[usize]; N]
+        &mut self,
+        indices: [&[usize]; N],
     ) -> Result<[&mut T; N], TensorError> {
         let mut positions = [0usize; N];
         for (offset, coordinates) in positions.iter_mut().zip(indices) {
-            let coords: [usize; R] = coordinates.try_into()
+            let coords: [usize; R] = coordinates
+                .try_into()
                 .map_err(|_| TensorError::IndexOutOfBounds)?;
-            *offset = self.shape().checked_offset(coords)
+            *offset = self
+                .shape()
+                .checked_offset(coords)
                 .ok_or(TensorError::IndexOutOfBounds)?;
         }
-        self.as_mut_slice().get_disjoint_mut(positions).map_err(|error| match error {
-            core::slice::GetDisjointMutError::IndexOutOfBounds => TensorError::IndexOutOfBounds,
-            core::slice::GetDisjointMutError::OverlappingIndices => TensorError::OverlappingMutableView,
-        })
+        self.as_mut_slice()
+            .get_disjoint_mut(positions)
+            .map_err(|error| match error {
+                core::slice::GetDisjointMutError::IndexOutOfBounds => TensorError::IndexOutOfBounds,
+                core::slice::GetDisjointMutError::OverlappingIndices => {
+                    TensorError::OverlappingMutableView
+                }
+            })
     }
 }

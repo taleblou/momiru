@@ -134,9 +134,9 @@
 #![forbid(unsafe_op_in_unsafe_fn)]
 
 pub mod execution;
-pub mod tensor;
 #[path = "execution/interop.rs"]
 pub mod interop;
+pub mod tensor;
 
 /// Canonical externally-facing f32 tensor type, ranks 0..=8.
 ///
@@ -158,10 +158,12 @@ pub type HostTensor<const R: usize> = Tensor<R>;
 pub type UninitTensor<const R: usize> = tensor::UninitTensor<f32, R>;
 pub type TensorView<'a, const R: usize> = tensor::TensorView<'a, f32, R>;
 pub type TensorViewMut<'a, const R: usize> = tensor::TensorViewMut<'a, f32, R>;
-pub use tensor::{DType, InternalOverlap, Layout, Rank, Shape, SignedSliceSpec, SignedTensorView,
-    SignedTensorViewMut, ReductionAxes, IndexResult, PredicateMask, canonical_minimum, canonical_maximum,
-    replace_argmin, replace_argmax, CANONICAL_QUIET_NAN32, SliceSpec,
-    TensorError, ValidRank, DEFAULT_HOST_ALIGNMENT, MAX_RANK, MIN_RANK};
+pub use tensor::{
+    canonical_maximum, canonical_minimum, replace_argmax, replace_argmin, DType, IndexResult,
+    InternalOverlap, Layout, PredicateMask, Rank, ReductionAxes, Shape, SignedSliceSpec,
+    SignedTensorView, SignedTensorViewMut, SliceSpec, TensorError, ValidRank,
+    CANONICAL_QUIET_NAN32, DEFAULT_HOST_ALIGNMENT, MAX_RANK, MIN_RANK,
+};
 
 /// Optional, offline-only UASDEA candidate specialization.
 ///

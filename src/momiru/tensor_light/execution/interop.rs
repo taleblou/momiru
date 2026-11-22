@@ -127,9 +127,12 @@ use crate::tensor_light::{Rank, Shape, TensorError, TensorView, ValidRank};
 
 /// Borrow initialized f32 data at compile-time rank R, with checked span.
 pub fn borrow_host<'a, const R: usize>(
-    source: &'a [f32], shape: Shape<R>
+    source: &'a [f32],
+    shape: Shape<R>,
 ) -> Result<TensorView<'a, R>, TensorError>
-where Rank<R>: ValidRank {
+where
+    Rank<R>: ValidRank,
+{
     TensorView::new(shape, source)
 }
 

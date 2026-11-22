@@ -135,12 +135,14 @@ use super::ir::{
     CanonicalWorkload, KernelMathMode, NodeId, Operation, PlanKey, TensorId, TensorLayout,
     TensorSpec, WorkloadSignature,
 };
-use super::{
-    ArenaId, BarrierId, EventId, ExecutionContextId, MemorySlotId, PlanError, StorageId, StreamId,
-    SyncId, TransferBatchId, TransferId,
-};
 use super::target::{ArtifactRef, FeatureMask, HardwareContract, LibraryAlgorithmPlan};
+#[cfg(feature = "aot")]
+use super::PlanError;
 use super::{stable_hash_pair, StableIdentityHasher};
+use super::{
+    ArenaId, BarrierId, EventId, ExecutionContextId, MemorySlotId, StorageId, StreamId, SyncId,
+    TransferBatchId, TransferId,
+};
 
 // =============================================================================
 // Placement and kernel mapping
@@ -1114,10 +1116,16 @@ pub enum ScheduleItem {
     /// Complete execution of a CPU-only or GPU-only node.
     Node(NodeId),
     /// Dispatch one exact slice of a combined CPU-GPU placement.
-    CpuGpuSliceLaunch { node: NodeId, slice: u16 },
+    CpuGpuSliceLaunch {
+        node: NodeId,
+        slice: u16,
+    },
     /// Explicit completion/wait point for that exact slice. The launch/complete
     /// pairs make overlap and sequencing replayable without backend inference.
-    CpuGpuSliceComplete { node: NodeId, slice: u16 },
+    CpuGpuSliceComplete {
+        node: NodeId,
+        slice: u16,
+    },
     Transfer(TransferId),
     TransferBatch(TransferBatchId),
     Sync(SyncId),
@@ -1616,8 +1624,7 @@ impl NumericalVerification {
             return false;
         }
         let reference = workload.verification_reference_signature();
-        if self.reference_signature_hi != reference.0
-            || self.reference_signature_lo != reference.1
+        if self.reference_signature_hi != reference.0 || self.reference_signature_lo != reference.1
         {
             return false;
         }
@@ -1635,7 +1642,10 @@ impl NumericalVerification {
             if tensor.dtype != crate::tensor_light::tensor::DType::F32 {
                 let mut node_index = 0usize;
                 while node_index < workload.graph.nodes.len() {
-                    if workload.graph.nodes[node_index].outputs.contains(&tensor.id) {
+                    if workload.graph.nodes[node_index]
+                        .outputs
+                        .contains(&tensor.id)
+                    {
                         requires_exact_metadata = true;
                         break;
                     }
@@ -1645,8 +1655,14 @@ impl NumericalVerification {
             tensor_index += 1;
         }
 
-        let reference_exact = (self.exact_output_reference_hi, self.exact_output_reference_lo);
-        let candidate_exact = (self.exact_output_candidate_hi, self.exact_output_candidate_lo);
+        let reference_exact = (
+            self.exact_output_reference_hi,
+            self.exact_output_reference_lo,
+        );
+        let candidate_exact = (
+            self.exact_output_candidate_hi,
+            self.exact_output_candidate_lo,
+        );
         if requires_exact_metadata {
             reference_exact != (0, 0)
                 && candidate_exact != (0, 0)
@@ -1780,6 +1796,7 @@ impl SelectionEvidence {
     /// Internal placeholder used only to construct a non-replayable plan view
     /// for offline structural preflight. Full winner evidence is still required
     /// by `freeze_offline` and runtime binding.
+    #[cfg(feature = "aot")]
     pub(crate) fn preflight_placeholder(
         workload: WorkloadSignature,
         candidate: CandidateId,
@@ -1837,15 +1854,25 @@ impl SelectionEvidence {
                 winner: candidate,
                 strongest_challenger: None,
                 winner_e2e: BenchmarkStats {
-                    warmup_samples: 1, measured_samples: 3,
-                    median_ns: 1, mad_ns: 0, p95_ns: 1,
-                    min_ns: 1, max_ns: 1, rejected_outliers: 0,
+                    warmup_samples: 1,
+                    measured_samples: 3,
+                    median_ns: 1,
+                    mad_ns: 0,
+                    p95_ns: 1,
+                    min_ns: 1,
+                    max_ns: 1,
+                    rejected_outliers: 0,
                 },
                 challenger_e2e: None,
                 baseline_e2e: BenchmarkStats {
-                    warmup_samples: 1, measured_samples: 3,
-                    median_ns: 1, mad_ns: 0, p95_ns: 1,
-                    min_ns: 1, max_ns: 1, rejected_outliers: 0,
+                    warmup_samples: 1,
+                    measured_samples: 3,
+                    median_ns: 1,
+                    mad_ns: 0,
+                    p95_ns: 1,
+                    min_ns: 1,
+                    max_ns: 1,
+                    rejected_outliers: 0,
                 },
                 held_out_uncertainty_ns: 1,
                 held_out_timer_resolution_ns: 1,
@@ -2038,7 +2065,10 @@ impl FrozenPlanParts {
         hash_field!(self.schedule);
         hash_field!(self.gpu_graph_segments);
 
-        CandidateId { hi: hi.finish(), lo: lo.finish() }
+        CandidateId {
+            hi: hi.finish(),
+            lo: lo.finish(),
+        }
     }
 
     /// Central offline preflight of the exact materialized candidate payload.
@@ -2308,43 +2338,83 @@ impl FrozenExecutionPlan {
     }
 
     #[inline(always)]
-    pub const fn name(&self) -> &'static str { self.name }
+    pub const fn name(&self) -> &'static str {
+        self.name
+    }
     #[inline(always)]
-    pub const fn key(&self) -> PlanKey { self.key }
+    pub const fn key(&self) -> PlanKey {
+        self.key
+    }
     #[inline(always)]
-    pub const fn seal(&self) -> PlanSeal { self.seal }
+    pub const fn seal(&self) -> PlanSeal {
+        self.seal
+    }
     #[inline(always)]
-    pub const fn canonical_workload(&self) -> CanonicalWorkload { self.canonical }
+    pub const fn canonical_workload(&self) -> CanonicalWorkload {
+        self.canonical
+    }
     #[inline(always)]
-    pub const fn workload(&self) -> WorkloadSignature { self.workload }
+    pub const fn workload(&self) -> WorkloadSignature {
+        self.workload
+    }
     #[inline(always)]
-    pub const fn selection_evidence(&self) -> SelectionEvidence { self.evidence }
+    pub const fn selection_evidence(&self) -> SelectionEvidence {
+        self.evidence
+    }
     #[inline(always)]
-    pub const fn hardware(&self) -> &HardwareContract { &self.hardware }
+    pub const fn hardware(&self) -> &HardwareContract {
+        &self.hardware
+    }
     #[inline(always)]
-    pub const fn tensors(&self) -> &'static [TensorSpec] { self.tensors }
+    pub const fn tensors(&self) -> &'static [TensorSpec] {
+        self.tensors
+    }
     #[inline(always)]
-    pub const fn arenas(&self) -> &'static [MemoryArenaPlan] { self.arenas }
+    pub const fn arenas(&self) -> &'static [MemoryArenaPlan] {
+        self.arenas
+    }
     #[inline(always)]
-    pub const fn memory_slots(&self) -> &'static [MemorySlotPlan] { self.memory_slots }
+    pub const fn memory_slots(&self) -> &'static [MemorySlotPlan] {
+        self.memory_slots
+    }
     #[inline(always)]
-    pub const fn storages(&self) -> &'static [TensorStoragePlan] { self.storages }
+    pub const fn storages(&self) -> &'static [TensorStoragePlan] {
+        self.storages
+    }
     #[inline(always)]
-    pub const fn gpu_graph_segments(&self) -> &'static [GpuGraphSegmentPlan] { self.gpu_graph_segments }
+    pub const fn gpu_graph_segments(&self) -> &'static [GpuGraphSegmentPlan] {
+        self.gpu_graph_segments
+    }
     #[inline(always)]
-    pub const fn execution_contexts(&self) -> &'static [GpuExecutionContextPlan] { self.execution_contexts }
+    pub const fn execution_contexts(&self) -> &'static [GpuExecutionContextPlan] {
+        self.execution_contexts
+    }
     #[inline(always)]
-    pub const fn streams(&self) -> &'static [StreamPlan] { self.streams }
+    pub const fn streams(&self) -> &'static [StreamPlan] {
+        self.streams
+    }
     #[inline(always)]
-    pub const fn events(&self) -> &'static [EventPlan] { self.events }
+    pub const fn events(&self) -> &'static [EventPlan] {
+        self.events
+    }
     #[inline(always)]
-    pub const fn nodes(&self) -> &'static [FrozenNode] { self.nodes }
+    pub const fn nodes(&self) -> &'static [FrozenNode] {
+        self.nodes
+    }
     #[inline(always)]
-    pub const fn transfers(&self) -> &'static [TransferPlan] { self.transfers }
+    pub const fn transfers(&self) -> &'static [TransferPlan] {
+        self.transfers
+    }
     #[inline(always)]
-    pub const fn transfer_batches(&self) -> &'static [TransferBatchPlan] { self.transfer_batches }
+    pub const fn transfer_batches(&self) -> &'static [TransferBatchPlan] {
+        self.transfer_batches
+    }
     #[inline(always)]
-    pub const fn synchronization(&self) -> &'static [SyncPlan] { self.synchronization }
+    pub const fn synchronization(&self) -> &'static [SyncPlan] {
+        self.synchronization
+    }
     #[inline(always)]
-    pub const fn schedule(&self) -> &'static [ScheduleItem] { self.schedule }
+    pub const fn schedule(&self) -> &'static [ScheduleItem] {
+        self.schedule
+    }
 }

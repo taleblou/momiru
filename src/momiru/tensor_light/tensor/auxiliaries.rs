@@ -140,7 +140,9 @@ where
     // Shape construction already proved every reachable f32 offset fits the
     // validated span. Reuse its checked-index boundary rather than repeating
     // per-axis checked arithmetic for each completed auxiliary scalar read.
-    shape.checked_offset(index).ok_or(TensorError::IndexOutOfBounds)
+    shape
+        .checked_offset(index)
+        .ok_or(TensorError::IndexOutOfBounds)
 }
 
 /// Host-resident auxiliary `u64` indices from an already-completed result.
@@ -162,26 +164,33 @@ where
     /// Index results may not be read while an AOT kernel is in flight.
     pub fn try_from_vec(dims: [usize; R], values: Vec<u64>) -> Result<Self, TensorError> {
         let shape = Shape::<R>::contiguous(dims)?;
-        if shape.len() != values.len() { return Err(TensorError::LengthMismatch); }
-        shape.len().checked_mul(core::mem::size_of::<u64>())
+        if shape.len() != values.len() {
+            return Err(TensorError::LengthMismatch);
+        }
+        shape
+            .len()
+            .checked_mul(core::mem::size_of::<u64>())
             .filter(|bytes| *bytes <= isize::MAX as usize)
             .ok_or(TensorError::AllocationOverflow)?;
         Ok(Self { shape, values })
     }
 
     #[inline(always)]
-    pub const fn shape(&self) -> &Shape<R> { &self.shape }
-    #[inline(always)]
-    pub const fn ndim(&self) -> usize { R }
-    #[inline(always)]
-    pub const fn len(&self) -> usize { self.shape.len() }
-    /// Whether the mask has no logical elements.
-    #[inline(always)]
-    pub const fn is_empty(&self) -> bool {
-        self.shape.is_empty()
+    pub const fn shape(&self) -> &Shape<R> {
+        &self.shape
     }
     #[inline(always)]
-    pub const fn numel(&self) -> usize { self.shape.len() }
+    pub const fn ndim(&self) -> usize {
+        R
+    }
+    #[inline(always)]
+    pub const fn len(&self) -> usize {
+        self.shape.len()
+    }
+    #[inline(always)]
+    pub const fn numel(&self) -> usize {
+        self.shape.len()
+    }
     /// Actual bytes of the u64 INDEX_RESULT payload, NOT the f32-only
     /// `Shape::nbytes()` value. Full u64 capacity was checked at construction.
     #[inline(always)]
@@ -189,15 +198,24 @@ where
         self.shape.len() * core::mem::size_of::<u64>()
     }
     #[inline(always)]
-    pub const fn is_empty(&self) -> bool { self.shape.is_empty() }
+    pub const fn is_empty(&self) -> bool {
+        self.shape.is_empty()
+    }
     #[inline(always)]
-    pub fn as_slice(&self) -> &[u64] { &self.values }
+    pub fn as_slice(&self) -> &[u64] {
+        &self.values
+    }
     #[inline(always)]
-    pub fn into_vec(self) -> Vec<u64> { self.values }
+    pub fn into_vec(self) -> Vec<u64> {
+        self.values
+    }
 
     pub fn get(&self, index: [usize; R]) -> Result<u64, TensorError> {
         let offset = linear_index(&self.shape, index)?;
-        self.values.get(offset).copied().ok_or(TensorError::IndexOutOfBounds)
+        self.values
+            .get(offset)
+            .copied()
+            .ok_or(TensorError::IndexOutOfBounds)
     }
 
     /// Host `usize` width is not assumed to equal the canonical `u64` wire
@@ -225,36 +243,64 @@ where
 {
     pub fn try_from_vec(dims: [usize; R], values: Vec<u8>) -> Result<Self, TensorError> {
         let shape = Shape::<R>::contiguous(dims)?;
-        if shape.len() != values.len() { return Err(TensorError::LengthMismatch); }
+        if shape.len() != values.len() {
+            return Err(TensorError::LengthMismatch);
+        }
         // Even though the f32 shape budget is currently stricter, validate
         // the actual u8 payload contract independently of that implementation
         // detail. This remains valid if the auxiliary geometry is later split.
-        shape.len().checked_mul(core::mem::size_of::<u8>())
+        shape
+            .len()
+            .checked_mul(core::mem::size_of::<u8>())
             .filter(|&bytes| bytes <= isize::MAX as usize)
             .ok_or(TensorError::AllocationOverflow)?;
-        if values.iter().any(|&b| b > 1) { return Err(TensorError::InvalidMaskValue); }
+        if values.iter().any(|&b| b > 1) {
+            return Err(TensorError::InvalidMaskValue);
+        }
         Ok(Self { shape, values })
     }
 
     #[inline(always)]
-    pub const fn shape(&self) -> &Shape<R> { &self.shape }
+    pub const fn shape(&self) -> &Shape<R> {
+        &self.shape
+    }
     #[inline(always)]
-    pub const fn ndim(&self) -> usize { R }
+    pub const fn ndim(&self) -> usize {
+        R
+    }
     #[inline(always)]
-    pub const fn len(&self) -> usize { self.shape.len() }
+    pub const fn len(&self) -> usize {
+        self.shape.len()
+    }
     #[inline(always)]
-    pub const fn numel(&self) -> usize { self.shape.len() }
+    pub const fn numel(&self) -> usize {
+        self.shape.len()
+    }
+    /// Whether the mask has no logical elements.
+    #[inline(always)]
+    pub const fn is_empty(&self) -> bool {
+        self.shape.is_empty()
+    }
     /// Actual bytes of the unpacked u8 PREDICATE_MASK payload. A packed mask
     /// is a different auxiliary representation and must be decoded before this
     /// host type is constructed; this is NOT the f32 `Shape::nbytes()` count.
     #[inline(always)]
-    pub const fn nbytes(&self) -> usize { self.shape.len() }
+    pub const fn nbytes(&self) -> usize {
+        self.shape.len()
+    }
     #[inline(always)]
-    pub fn as_bytes(&self) -> &[u8] { &self.values }
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.values
+    }
     #[inline(always)]
-    pub fn into_vec(self) -> Vec<u8> { self.values }
+    pub fn into_vec(self) -> Vec<u8> {
+        self.values
+    }
     pub fn get(&self, index: [usize; R]) -> Result<bool, TensorError> {
         let offset = linear_index(&self.shape, index)?;
-        self.values.get(offset).map(|&b| b != 0).ok_or(TensorError::IndexOutOfBounds)
+        self.values
+            .get(offset)
+            .map(|&b| b != 0)
+            .ok_or(TensorError::IndexOutOfBounds)
     }
 }

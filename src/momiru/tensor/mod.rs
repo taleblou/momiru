@@ -20,6 +20,7 @@
 //! ```
 
 use core::fmt;
+use core::num::NonZeroIsize;
 use core::ops::{Index, IndexMut};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -321,6 +322,52 @@ impl Layout {
         Self::new(dims, &self.strides, origin, self.capacity)
     }
 
+    fn sliced_axis(
+        &self,
+        axis: usize,
+        start: usize,
+        length: usize,
+        step: NonZeroIsize,
+    ) -> Result<Self, TensorError> {
+        let extent = *self.dims.get(axis).ok_or(TensorError::AxisOutOfBounds)?;
+        if start > extent || (length != 0 && start == extent) {
+            return Err(TensorError::IndexOutOfBounds);
+        }
+        let step = step.get() as i128;
+        if length != 0 {
+            let last = ((length - 1) as i128)
+                .checked_mul(step)
+                .and_then(|delta| (start as i128).checked_add(delta))
+                .ok_or(TensorError::ShapeOverflow)?;
+            if !usize::try_from(last).is_ok_and(|coordinate| coordinate < extent) {
+                return Err(TensorError::IndexOutOfBounds);
+            }
+        }
+
+        let mut dims = self.dims.clone();
+        dims[axis] = length;
+        let mut strides = self.strides.clone();
+        let source_stride = strides[axis] as i128;
+        let origin = if length == 0 || self.is_empty() {
+            self.origin
+        } else {
+            let origin = (start as i128)
+                .checked_mul(source_stride)
+                .and_then(|delta| (self.origin as i128).checked_add(delta))
+                .ok_or(TensorError::ShapeOverflow)?;
+            isize::try_from(origin).map_err(|_| TensorError::ShapeOverflow)?
+        };
+        strides[axis] = if length <= 1 || self.is_empty() {
+            0
+        } else {
+            let stride = source_stride
+                .checked_mul(step)
+                .ok_or(TensorError::ShapeOverflow)?;
+            isize::try_from(stride).map_err(|_| TensorError::ShapeOverflow)?
+        };
+        Self::new(dims, strides, origin, self.capacity)
+    }
+
     fn reshaped(&self, dims: &[usize]) -> Result<Self, TensorError> {
         if !self.is_c_contiguous() {
             return Err(TensorError::NonContiguous);
@@ -486,6 +533,22 @@ impl<'a, T> TensorView<'a, T> {
         })
     }
 
+    /// Borrow `length` coordinates starting at `start` and advancing by `step`.
+    /// All selected coordinates must lie within the axis. An empty selection
+    /// permits `start` at the end of the axis and preserves the backing origin.
+    pub fn slice_axis(
+        &self,
+        axis: usize,
+        start: usize,
+        length: usize,
+        step: NonZeroIsize,
+    ) -> Result<Self, TensorError> {
+        Ok(Self {
+            layout: self.layout.sliced_axis(axis, start, length, step)?,
+            storage: self.storage,
+        })
+    }
+
     /// Reshape in logical row-major order without moving any elements.
     pub fn reshape_view(&self, dims: impl AsRef<[usize]>) -> Result<Self, TensorError> {
         Ok(Self {
@@ -574,6 +637,19 @@ impl<'a, T> TensorViewMut<'a, T> {
 
     pub fn narrow(mut self, axis: usize, start: usize, length: usize) -> Result<Self, TensorError> {
         self.layout = self.layout.narrowed(axis, start, length)?;
+        Ok(self)
+    }
+
+    /// Select a stepped subset of the existing view, retaining its exclusive borrow.
+    /// Coordinates follow the same rules as [`TensorView::slice_axis`].
+    pub fn slice_axis(
+        mut self,
+        axis: usize,
+        start: usize,
+        length: usize,
+        step: NonZeroIsize,
+    ) -> Result<Self, TensorError> {
+        self.layout = self.layout.sliced_axis(axis, start, length, step)?;
         Ok(self)
     }
 

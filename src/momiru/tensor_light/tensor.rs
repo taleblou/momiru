@@ -132,16 +132,16 @@
 //! must execute through the same preselected UASDEA FrozenExecutionPlan; they are
 //! not hidden eager methods or a second CPU-specific tensor execution system.
 
+mod auxiliaries;
+mod axis;
+mod bounded;
+mod compat;
 mod indexing;
-mod view;
+mod layout;
+mod numerics;
 mod signed_view;
 mod signed_view_mut;
-mod axis;
-mod numerics;
-mod auxiliaries;
-mod layout;
-mod compat;
-mod bounded;
+mod view;
 pub use layout::Layout;
 
 pub const MIN_RANK: usize = 0;
@@ -150,7 +150,11 @@ pub const DEFAULT_HOST_ALIGNMENT: usize = 64;
 
 /// Guaranteed absence, definite duplication, or conservative uncertainty.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum InternalOverlap { None, Definite, Unknown }
+pub enum InternalOverlap {
+    None,
+    Definite,
+    Unknown,
+}
 
 mod dtype {
     //! Concrete F32 tensor dtype plus engine-only index/mask metadata dtypes.
@@ -271,10 +275,17 @@ fn stride_gcd(mut a: usize, mut b: usize) -> usize {
 /// differences; using unsigned magnitudes also handles isize::MIN safely.
 #[inline]
 fn exact_two_axis_injective(
-    extent_a: usize, stride_a: usize, extent_b: usize, stride_b: usize,
+    extent_a: usize,
+    stride_a: usize,
+    extent_b: usize,
+    stride_b: usize,
 ) -> bool {
-    if extent_a <= 1 || extent_b <= 1 { return true; }
-    if stride_a == 0 || stride_b == 0 { return false; }
+    if extent_a <= 1 || extent_b <= 1 {
+        return true;
+    }
+    if stride_a == 0 || stride_b == 0 {
+        return false;
+    }
     let gcd = stride_gcd(stride_a, stride_b);
     (extent_a - 1) < stride_b / gcd || (extent_b - 1) < stride_a / gcd
 }
@@ -284,14 +295,21 @@ fn exact_two_axis_injective(
 /// Definite overlap even for a rank-8 tensor.
 #[inline]
 fn mapping_has_definite_pair_collision<const R: usize>(
-    dims: &[usize; R], strides: &[isize; R],
+    dims: &[usize; R],
+    strides: &[isize; R],
 ) -> bool {
     for a in 0..R {
-        if dims[a] <= 1 { continue; }
+        if dims[a] <= 1 {
+            continue;
+        }
         let sa = strides[a].unsigned_abs();
-        if sa == 0 { return true; }
+        if sa == 0 {
+            return true;
+        }
         for b in a + 1..R {
-            if dims[b] <= 1 { continue; }
+            if dims[b] <= 1 {
+                continue;
+            }
             let sb = strides[b].unsigned_abs();
             if !exact_two_axis_injective(dims[a], sa, dims[b], sb) {
                 return true;
@@ -312,22 +330,35 @@ fn mapping_has_definite_pair_collision<const R: usize>(
 /// incomplete: exhausting the budget must lead to Unknown, never None.
 #[inline]
 fn mapping_has_bounded_triple_collision<const R: usize>(
-    dims: &[usize; R], strides: &[isize; R],
+    dims: &[usize; R],
+    strides: &[isize; R],
 ) -> bool {
     const MAX_CHECKS: usize = 4096;
     const MAX_CHECKS_PER_TRIPLE: usize = 256;
     let mut budget = MAX_CHECKS;
     for a in 0..R {
-        if dims[a] <= 1 { continue; }
+        if dims[a] <= 1 {
+            continue;
+        }
         for b in a + 1..R {
-            if dims[b] <= 1 { continue; }
+            if dims[b] <= 1 {
+                continue;
+            }
             for c in b + 1..R {
-                if dims[c] <= 1 { continue; }
+                if dims[c] <= 1 {
+                    continue;
+                }
                 // Sort just THREE axis identifiers by extent, on the stack.
                 let mut axes = [a, b, c];
-                if dims[axes[0]] > dims[axes[1]] { axes.swap(0, 1); }
-                if dims[axes[1]] > dims[axes[2]] { axes.swap(1, 2); }
-                if dims[axes[0]] > dims[axes[1]] { axes.swap(0, 1); }
+                if dims[axes[0]] > dims[axes[1]] {
+                    axes.swap(0, 1);
+                }
+                if dims[axes[1]] > dims[axes[2]] {
+                    axes.swap(1, 2);
+                }
+                if dims[axes[0]] > dims[axes[1]] {
+                    axes.swap(0, 1);
+                }
                 let delta_a = dims[axes[0]] - 1;
                 let delta_b = dims[axes[1]] - 1;
                 let delta_c = dims[axes[2]] - 1;
@@ -337,17 +368,29 @@ fn mapping_has_bounded_triple_collision<const R: usize>(
                 let Some(width_b) = delta_b.checked_mul(2).and_then(|x| x.checked_add(1)) else {
                     continue;
                 };
-                let Some(checks) = width_a.checked_mul(width_b) else { continue; };
-                if checks > MAX_CHECKS_PER_TRIPLE || checks > budget { continue; }
+                let Some(checks) = width_a.checked_mul(width_b) else {
+                    continue;
+                };
+                if checks > MAX_CHECKS_PER_TRIPLE || checks > budget {
+                    continue;
+                }
                 budget -= checks;
-                let Ok(delta_a) = i128::try_from(delta_a) else { continue; };
-                let Ok(delta_b) = i128::try_from(delta_b) else { continue; };
-                let Ok(delta_c) = i128::try_from(delta_c) else { continue; };
+                let Ok(delta_a) = i128::try_from(delta_a) else {
+                    continue;
+                };
+                let Ok(delta_b) = i128::try_from(delta_b) else {
+                    continue;
+                };
+                let Ok(delta_c) = i128::try_from(delta_c) else {
+                    continue;
+                };
                 let sa = strides[axes[0]] as i128;
                 let sb = strides[axes[1]] as i128;
                 let sc = strides[axes[2]] as i128;
                 // Zero strides were handled before this helper is called.
-                if sc == 0 { continue; }
+                if sc == 0 {
+                    continue;
+                }
                 // A bounded delta (at most 127 for either enumerated axis)
                 // times any isize stride cannot overflow i128; addition of
                 // the two products also fits i128 on supported hosts.
@@ -356,9 +399,7 @@ fn mapping_has_bounded_triple_collision<const R: usize>(
                         let required = -(da * sa + db * sb);
                         if required % sc == 0 {
                             let dc = required / sc;
-                            if dc >= -delta_c && dc <= delta_c
-                                && (da != 0 || db != 0 || dc != 0)
-                            {
+                            if dc >= -delta_c && dc <= delta_c && (da != 0 || db != 0 || dc != 0) {
                                 return true;
                             }
                         }
@@ -379,20 +420,30 @@ fn mapping_has_bounded_triple_collision<const R: usize>(
 /// contribute neither displacement nor a stride divisor.
 #[inline]
 fn mapping_has_pigeonhole_collision<const R: usize>(
-    dims: &[usize; R], strides: &[isize; R], len: usize,
+    dims: &[usize; R],
+    strides: &[isize; R],
+    len: usize,
 ) -> bool {
-    if len <= 1 || dims.contains(&0) { return false; }
+    if len <= 1 || dims.contains(&0) {
+        return false;
+    }
     let mut spread = 0u128;
     let mut divisor = 0usize;
     for axis in 0..R {
-        if dims[axis] <= 1 { continue; }
+        if dims[axis] <= 1 {
+            continue;
+        }
         let stride = strides[axis].unsigned_abs();
         if divisor != 1 {
             divisor = stride_gcd(divisor, stride);
         }
         let extent = (dims[axis] - 1) as u128;
-        let Some(delta) = extent.checked_mul(stride as u128) else { return false; };
-        let Some(next) = spread.checked_add(delta) else { return false; };
+        let Some(delta) = extent.checked_mul(stride as u128) else {
+            return false;
+        };
+        let Some(next) = spread.checked_add(delta) else {
+            return false;
+        };
         spread = next;
     }
     divisor != 0 && (len as u128 - 1) > spread / divisor as u128
@@ -406,11 +457,17 @@ fn mapping_has_pigeonhole_collision<const R: usize>(
 /// a mutable reference. No payload pointer is ever created here.
 #[inline]
 fn bounded_exact_mapping_overlap<const R: usize>(
-    dims: &[usize; R], strides: &[isize; R], len: usize,
+    dims: &[usize; R],
+    strides: &[isize; R],
+    len: usize,
 ) -> InternalOverlap {
     const LIMIT: usize = 128;
-    if len <= 1 { return InternalOverlap::None; }
-    if len > LIMIT || dims.contains(&0) { return InternalOverlap::Unknown; }
+    if len <= 1 {
+        return InternalOverlap::None;
+    }
+    if len > LIMIT || dims.contains(&0) {
+        return InternalOverlap::Unknown;
+    }
 
     let mut offsets = [0i128; LIMIT];
     for (linear, slot) in offsets[..len].iter_mut().enumerate() {
@@ -427,7 +484,9 @@ fn bounded_exact_mapping_overlap<const R: usize>(
             };
             offset = sum;
         }
-        if remaining != 0 { return InternalOverlap::Unknown; }
+        if remaining != 0 {
+            return InternalOverlap::Unknown;
+        }
         *slot = offset;
     }
     offsets[..len].sort_unstable(); // in place; no heap allocation
@@ -449,14 +508,20 @@ fn bounded_exact_mapping_overlap<const R: usize>(
 /// cheap sorted-stride certificate BEFORE any pairwise gcd or enumeration.
 #[inline]
 pub(crate) fn signed_mapping_overlap<const R: usize>(
-    dims: &[usize; R], strides: &[isize; R], len: usize,
+    dims: &[usize; R],
+    strides: &[isize; R],
+    len: usize,
 ) -> InternalOverlap {
-    if len <= 1 { return InternalOverlap::None; }
+    if len <= 1 {
+        return InternalOverlap::None;
+    }
     let mut axes = [0usize; R];
     let mut count = 0usize;
     for axis in 0..R {
         if dims[axis] > 1 {
-            if strides[axis] == 0 { return InternalOverlap::Definite; }
+            if strides[axis] == 0 {
+                return InternalOverlap::Definite;
+            }
             axes[count] = axis;
             count += 1;
         }
@@ -475,7 +540,10 @@ pub(crate) fn signed_mapping_overlap<const R: usize>(
     let mut separated = true;
     for &axis in &axes[..count] {
         let stride = strides[axis].unsigned_abs() as u128;
-        if stride < covered { separated = false; break; }
+        if stride < covered {
+            separated = false;
+            break;
+        }
         let extent = (dims[axis] - 1) as u128;
         let Some(delta) = extent.checked_mul(stride) else {
             separated = false;
@@ -487,7 +555,9 @@ pub(crate) fn signed_mapping_overlap<const R: usize>(
         };
         covered = next;
     }
-    if separated { return InternalOverlap::None; }
+    if separated {
+        return InternalOverlap::None;
+    }
 
     // Exactly two active axes admit an O(log stride) Diophantine criterion,
     // with a proven Definite verdict when the bounded differences collide.
@@ -495,8 +565,15 @@ pub(crate) fn signed_mapping_overlap<const R: usize>(
         let a = axes[0];
         let b = axes[1];
         return if exact_two_axis_injective(
-            dims[a], strides[a].unsigned_abs(), dims[b], strides[b].unsigned_abs(),
-        ) { InternalOverlap::None } else { InternalOverlap::Definite };
+            dims[a],
+            strides[a].unsigned_abs(),
+            dims[b],
+            strides[b].unsigned_abs(),
+        ) {
+            InternalOverlap::None
+        } else {
+            InternalOverlap::Definite
+        };
     }
     // Stride spacing can prove certain large multi-axis collisions without
     // enumeration. Having enough candidate offsets gives no uniqueness proof.
@@ -516,7 +593,9 @@ pub(crate) fn signed_mapping_overlap<const R: usize>(
 
 #[inline]
 pub(crate) fn signed_mapping_is_injective<const R: usize>(
-    dims: &[usize; R], strides: &[isize; R], len: usize,
+    dims: &[usize; R],
+    strides: &[isize; R],
+    len: usize,
 ) -> bool {
     signed_mapping_overlap(dims, strides, len) == InternalOverlap::None
 }
@@ -532,10 +611,17 @@ pub use auxiliaries::{IndexResult, PredicateMask};
 /// makes the view empty, a non-affine group can use stride zero because no
 /// address is reachable. Its merged extent must still fit in usize.
 pub(crate) fn collapse_flatten_group<const R: usize>(
-    dims: &[usize; R], strides: &[isize; R], start: usize, end: usize,
+    dims: &[usize; R],
+    strides: &[isize; R],
+    start: usize,
+    end: usize,
 ) -> Result<(usize, isize), TensorError> {
-    if start > end || end >= R { return Err(TensorError::InvalidRange); }
-    if dims[start..=end].contains(&0) { return Ok((0, 0)); }
+    if start > end || end >= R {
+        return Err(TensorError::InvalidRange);
+    }
+    if dims[start..=end].contains(&0) {
+        return Ok((0, 0));
+    }
 
     let mut cardinality = 1usize;
     let mut inner_stride: Option<i128> = None;
@@ -544,7 +630,8 @@ pub(crate) fn collapse_flatten_group<const R: usize>(
         let dim = dims[axis];
         if dim > 1 {
             if let Some(base_stride) = inner_stride {
-                let expected = base_stride.checked_mul(scale)
+                let expected = base_stride
+                    .checked_mul(scale)
                     .ok_or(TensorError::ShapeOverflow)?;
                 if (strides[axis] as i128) != expected {
                     if dims.contains(&0) {
@@ -559,11 +646,18 @@ pub(crate) fn collapse_flatten_group<const R: usize>(
                 inner_stride = Some(strides[axis] as i128);
             }
         }
-        cardinality = cardinality.checked_mul(dim).ok_or(TensorError::ShapeOverflow)?;
-        scale = scale.checked_mul(dim as i128).ok_or(TensorError::ShapeOverflow)?;
+        cardinality = cardinality
+            .checked_mul(dim)
+            .ok_or(TensorError::ShapeOverflow)?;
+        scale = scale
+            .checked_mul(dim as i128)
+            .ok_or(TensorError::ShapeOverflow)?;
     }
     let stride = inner_stride.unwrap_or(0);
-    Ok((cardinality, isize::try_from(stride).map_err(|_| TensorError::ShapeOverflow)?))
+    Ok((
+        cardinality,
+        isize::try_from(stride).map_err(|_| TensorError::ShapeOverflow)?,
+    ))
 }
 
 mod storage {
@@ -573,7 +667,7 @@ mod storage {
     use core::ptr::NonNull;
     use std::alloc::{alloc, alloc_zeroed, dealloc, Layout};
 
-    use super::{TensorElement, TensorError, DEFAULT_HOST_ALIGNMENT};
+    use super::{TensorElement, TensorError};
 
     pub struct AlignedBuffer<T: TensorElement> {
         pub(super) ptr: NonNull<T>,
@@ -707,7 +801,8 @@ mod storage {
             // 32/64-byte SIMD alignment for an adopted Vec.
             let pointer_alignment = 1usize << (ptr.as_ptr() as usize).trailing_zeros();
             Self {
-                ptr, len,
+                ptr,
+                len,
                 alignment: pointer_alignment.max(core::mem::align_of::<T>()),
                 layout: None,
                 vec_capacity: Some(capacity),
@@ -746,9 +841,7 @@ mod storage {
             if let Some(capacity) = self.vec_capacity {
                 // SAFETY: from_vec retained exactly the original Vec pointer,
                 // length, capacity and allocation ownership.
-                let _original_vec = unsafe {
-                    Vec::from_parts(self.ptr, self.len, capacity)
-                };
+                let _original_vec = unsafe { Vec::from_parts(self.ptr, self.len, capacity) };
             } else if let Some(layout) = self.layout {
                 unsafe { dealloc(self.ptr.as_ptr().cast::<u8>(), layout) };
             }
@@ -764,11 +857,11 @@ mod owned {
     use core::ptr::NonNull;
     use std::alloc::{alloc, dealloc, Layout};
 
-    use crate::tensor_light::tensor::view::{TensorView, TensorViewMut};
     use super::{
         AlignedBuffer, DType, Rank, Shape, TensorElement, TensorError, ValidRank,
         DEFAULT_HOST_ALIGNMENT,
     };
+    use crate::tensor_light::tensor::view::{TensorView, TensorViewMut};
 
     pub struct Tensor<T: TensorElement, const R: usize>
     where
@@ -801,8 +894,13 @@ mod owned {
         /// Alignment remains the allocator's ACTUAL alignment, never a pretend 64B.
         pub fn try_from_vec(dims: [usize; R], values: Vec<T>) -> Result<Self, TensorError> {
             let shape = Shape::contiguous(dims)?;
-            if shape.len() != values.len() { return Err(TensorError::LengthMismatch); }
-            Ok(Self { shape, data: AlignedBuffer::from_vec(values) })
+            if shape.len() != values.len() {
+                return Err(TensorError::LengthMismatch);
+            }
+            Ok(Self {
+                shape,
+                data: AlignedBuffer::from_vec(values),
+            })
         }
 
         /// Canonical, zero-copy owner transfer from a Vec of f32 values.
@@ -824,7 +922,8 @@ mod owned {
         /// Use try_into_vec for zero-copy recovery of an originally adopted Vec.
         pub fn try_to_vec(&self) -> Result<Vec<T>, TensorError> {
             let mut result = Vec::new();
-            result.try_reserve_exact(self.len())
+            result
+                .try_reserve_exact(self.len())
                 .map_err(|_| TensorError::AllocationFailed)?;
             result.extend_from_slice(self.as_slice());
             Ok(result)
@@ -833,14 +932,18 @@ mod owned {
         /// Provision the host buffer from equally sized initialized data.
         /// All shape/length checks happen before the first write.
         pub fn copy_from_slice(&mut self, src: &[T]) -> Result<(), TensorError> {
-            if src.len() != self.len() { return Err(TensorError::LengthMismatch); }
+            if src.len() != self.len() {
+                return Err(TensorError::LengthMismatch);
+            }
             self.as_mut_slice().copy_from_slice(src);
             Ok(())
         }
 
         /// Exact-shape owned-host copy. No execution-plan search or computation.
         pub fn copy_from_tensor(&mut self, src: &Self) -> Result<(), TensorError> {
-            if self.dims() != src.dims() { return Err(TensorError::ShapeMismatch); }
+            if self.dims() != src.dims() {
+                return Err(TensorError::ShapeMismatch);
+            }
             self.as_mut_slice().copy_from_slice(src.as_slice());
             Ok(())
         }
@@ -856,7 +959,8 @@ mod owned {
         /// without copying, reallocating, or changing the underlying address.
         /// If dimensions mismatch, return the original Tensor unmodified.
         pub fn try_reshape_owned<const OUT: usize>(
-            self, dims: [usize; OUT],
+            self,
+            dims: [usize; OUT],
         ) -> Result<Tensor<T, OUT>, (TensorError, Self)>
         where
             Rank<OUT>: ValidRank,
@@ -869,7 +973,10 @@ mod owned {
                 return Err((TensorError::ShapeMismatch, self));
             }
             let Tensor { data, .. } = self;
-            Ok(Tensor { shape: new_shape, data })
+            Ok(Tensor {
+                shape: new_shape,
+                data,
+            })
         }
 
         /// Recover the *original* Vec allocation, length, and capacity without
@@ -877,7 +984,9 @@ mod owned {
         /// Custom 64-byte allocations must never be reconstructed as Vec.
         /// On failure, the owning Tensor is returned unchanged.
         pub fn try_into_vec(self) -> Result<Vec<T>, Self> {
-            let Some(capacity) = self.data.vec_capacity else { return Err(self) };
+            let Some(capacity) = self.data.vec_capacity else {
+                return Err(self);
+            };
             let owned = core::mem::ManuallyDrop::new(self);
             // SAFETY: AlignedBuffer::from_vec exclusively retained the
             // original Vec<T> pointer/length/capacity/allocator. ManuallyDrop
@@ -886,7 +995,9 @@ mod owned {
         }
 
         #[inline(always)]
-        pub const fn dtype(&self) -> DType { T::DTYPE }
+        pub const fn dtype(&self) -> DType {
+            T::DTYPE
+        }
 
         #[inline(always)]
         pub const fn shape(&self) -> &Shape<R> {
@@ -894,35 +1005,61 @@ mod owned {
         }
 
         #[inline(always)]
-        pub const fn alignment(&self) -> usize { self.data.alignment() }
+        pub const fn alignment(&self) -> usize {
+            self.data.alignment()
+        }
 
         #[inline(always)]
-        pub const fn ndim(&self) -> usize { R }
+        pub const fn ndim(&self) -> usize {
+            R
+        }
         #[inline(always)]
-        pub const fn is_scalar(&self) -> bool { R == 0 }
+        pub const fn is_scalar(&self) -> bool {
+            R == 0
+        }
         #[inline(always)]
-        pub fn signed_strides(&self) -> [isize; R] { self.shape.signed_strides() }
+        pub fn signed_strides(&self) -> [isize; R] {
+            self.shape.signed_strides()
+        }
         #[inline(always)]
-        pub const fn dims(&self) -> &[usize; R] { self.shape.dims() }
+        pub const fn dims(&self) -> &[usize; R] {
+            self.shape.dims()
+        }
         #[inline(always)]
-        pub const fn strides(&self) -> &[usize; R] { self.shape.strides() }
+        pub const fn strides(&self) -> &[usize; R] {
+            self.shape.strides()
+        }
         #[inline(always)]
-        pub const fn nbytes(&self) -> usize { self.shape.nbytes() }
+        pub const fn nbytes(&self) -> usize {
+            self.shape.nbytes()
+        }
         /// Logical f32 element count, distinct from physical span or Vec capacity.
         #[inline(always)]
-        pub const fn numel(&self) -> usize { self.shape.numel() }
+        pub const fn numel(&self) -> usize {
+            self.shape.numel()
+        }
         /// Physical span of the owned host allocation in f32 elements.
         /// Dense owning Tensor always has span_len == numel.
         #[inline(always)]
-        pub const fn span_len(&self) -> usize { self.shape.span_len() }
+        pub const fn span_len(&self) -> usize {
+            self.shape.span_len()
+        }
         #[inline(always)]
-        pub fn is_c_contiguous(&self) -> bool { self.shape.is_c_contiguous() }
+        pub fn is_c_contiguous(&self) -> bool {
+            self.shape.is_c_contiguous()
+        }
         #[inline(always)]
-        pub fn is_f_contiguous(&self) -> bool { self.shape.is_f_contiguous() }
+        pub fn is_f_contiguous(&self) -> bool {
+            self.shape.is_f_contiguous()
+        }
         #[inline(always)]
-        pub const fn is_unique(&self) -> bool { true }
+        pub const fn is_unique(&self) -> bool {
+            true
+        }
         #[inline(always)]
-        pub const fn is_exhaustive(&self) -> bool { true }
+        pub const fn is_exhaustive(&self) -> bool {
+            true
+        }
         #[inline(always)]
         pub const fn internal_overlap(&self) -> super::InternalOverlap {
             super::InternalOverlap::None
@@ -1022,10 +1159,7 @@ mod owned {
         }
     }
 
-    unsafe impl<T: TensorElement, const R: usize> Send for UninitTensor<T, R> where
-        Rank<R>: ValidRank
-    {
-    }
+    unsafe impl<T: TensorElement, const R: usize> Send for UninitTensor<T, R> where Rank<R>: ValidRank {}
 
     impl<T: TensorElement, const R: usize> UninitTensor<T, R>
     where
@@ -1107,7 +1241,9 @@ mod owned {
 
         /// Cardinality may be queried safely without exposing uninitialized data.
         #[inline(always)]
-        pub const fn numel(&self) -> usize { self.shape.numel() }
+        pub const fn numel(&self) -> usize {
+            self.shape.numel()
+        }
 
         #[inline(always)]
         pub const fn is_empty(&self) -> bool {
@@ -1148,8 +1284,6 @@ mod owned {
 }
 pub use owned::{Tensor, UninitTensor};
 
-
-
 // =============================================================================
 // Host-side tensor construction
 // =============================================================================
@@ -1176,10 +1310,7 @@ where
         Self::with_alignment(dims, DEFAULT_HOST_ALIGNMENT)
     }
 
-    pub fn with_alignment(
-        dims: [usize; R],
-        alignment: usize,
-    ) -> Result<Self, TensorError> {
+    pub fn with_alignment(dims: [usize; R], alignment: usize) -> Result<Self, TensorError> {
         if alignment == 0 || !alignment.is_power_of_two() {
             return Err(TensorError::InvalidAlignment);
         }
@@ -1220,10 +1351,7 @@ where
         Self::zeros_aligned(dims, DEFAULT_HOST_ALIGNMENT)
     }
 
-    pub fn zeros_aligned(
-        dims: [usize; R],
-        alignment: usize,
-    ) -> Result<Self, TensorError> {
+    pub fn zeros_aligned(dims: [usize; R], alignment: usize) -> Result<Self, TensorError> {
         let plan = CreationPlan::with_alignment(dims, alignment)?;
         Self::zeros_with_plan(plan)
     }
@@ -1254,11 +1382,7 @@ where
         Self::full(dims, value)
     }
 
-    pub fn full_aligned(
-        dims: [usize; R],
-        value: T,
-        alignment: usize,
-    ) -> Result<Self, TensorError> {
+    pub fn full_aligned(dims: [usize; R], value: T, alignment: usize) -> Result<Self, TensorError> {
         let plan = CreationPlan::with_alignment(dims, alignment)?;
         Self::full_with_plan(plan, value)
     }
@@ -1274,10 +1398,7 @@ where
     }
 
     /// Creates a full tensor without a redundant zero-initialization pass.
-    pub(crate) fn full_with_plan(
-        plan: CreationPlan<R>,
-        value: T,
-    ) -> Result<Self, TensorError> {
+    pub(crate) fn full_with_plan(plan: CreationPlan<R>, value: T) -> Result<Self, TensorError> {
         let mut out = UninitTensor::<T, R>::from_plan(plan)?;
         let len = out.len();
         let ptr = out.as_mut_ptr();
@@ -1374,11 +1495,7 @@ where
         Self::from_fn_aligned(dims, DEFAULT_HOST_ALIGNMENT, f)
     }
 
-    pub fn from_fn_aligned<F>(
-        dims: [usize; R],
-        alignment: usize,
-        f: F,
-    ) -> Result<Self, TensorError>
+    pub fn from_fn_aligned<F>(dims: [usize; R], alignment: usize, f: F) -> Result<Self, TensorError>
     where
         F: FnMut([usize; R]) -> T,
     {
@@ -1387,10 +1504,7 @@ where
     }
 
     /// Build from checked metadata once; callback receives a stack index array.
-    pub(crate) fn from_fn_with_plan<F>(
-        plan: CreationPlan<R>,
-        mut f: F,
-    ) -> Result<Self, TensorError>
+    pub(crate) fn from_fn_with_plan<F>(plan: CreationPlan<R>, mut f: F) -> Result<Self, TensorError>
     where
         F: FnMut([usize; R]) -> T,
     {
@@ -1453,7 +1567,9 @@ where
     #[inline]
     pub fn randu_like(&self, seed: u64) -> Result<Self, TensorError> {
         let mut rng = SplitMix64::new(seed);
-        Self::from_linear_fn_aligned(*self.shape.dims(), self.alignment(), |_| rng.next_unit_f32())
+        Self::from_linear_fn_aligned(*self.shape.dims(), self.alignment(), |_| {
+            rng.next_unit_f32()
+        })
     }
 
     /// Seed-reproducible standard-normal values via the Box-Muller transform.
@@ -1502,12 +1618,7 @@ where
     }
 
     /// Integer-valued F32 tensor sampled uniformly from `[low, high)`.
-    pub fn randint(
-        dims: [usize; R],
-        low: i32,
-        high: i32,
-        seed: u64,
-    ) -> Result<Self, TensorError> {
+    pub fn randint(dims: [usize; R], low: i32, high: i32, seed: u64) -> Result<Self, TensorError> {
         let width = exact_f32_integer_width(low, high)?;
         let mut rng = SplitMix64::new(seed);
         let threshold = SplitMix64::rejection_threshold(width);
@@ -1517,12 +1628,7 @@ where
         })
     }
 
-    pub fn randint_like(
-        &self,
-        low: i32,
-        high: i32,
-        seed: u64,
-    ) -> Result<Self, TensorError> {
+    pub fn randint_like(&self, low: i32, high: i32, seed: u64) -> Result<Self, TensorError> {
         let width = exact_f32_integer_width(low, high)?;
         let mut rng = SplitMix64::new(seed);
         let threshold = SplitMix64::rejection_threshold(width);
@@ -1533,16 +1639,16 @@ where
     }
 
     /// F32 mask with values exactly `0.0` or `1.0`.
-    pub fn bernoulli(
-        dims: [usize; R],
-        probability: f32,
-        seed: u64,
-    ) -> Result<Self, TensorError> {
+    pub fn bernoulli(dims: [usize; R], probability: f32, seed: u64) -> Result<Self, TensorError> {
         if !(0.0..=1.0).contains(&probability) || probability.is_nan() {
             return Err(TensorError::InvalidProbability);
         }
-        if probability == 0.0 { return Self::zeros(dims); }
-        if probability == 1.0 { return Self::ones(dims); }
+        if probability == 0.0 {
+            return Self::zeros(dims);
+        }
+        if probability == 1.0 {
+            return Self::ones(dims);
+        }
         // The acceptance threshold is derived once from the exact f32 value.
         // Compare full 64-bit RNG words instead of discarding 40 bits and
         // converting each sample to f32. This improves tail probabilities and
@@ -1550,24 +1656,32 @@ where
         let threshold = SplitMix64::bernoulli_threshold(probability);
         let mut rng = SplitMix64::new(seed);
         Self::from_linear_fn_aligned(dims, DEFAULT_HOST_ALIGNMENT, |_| {
-            if rng.next_u64() < threshold { 1.0 } else { 0.0 }
+            if rng.next_u64() < threshold {
+                1.0
+            } else {
+                0.0
+            }
         })
     }
 
-    pub fn bernoulli_like(
-        &self,
-        probability: f32,
-        seed: u64,
-    ) -> Result<Self, TensorError> {
+    pub fn bernoulli_like(&self, probability: f32, seed: u64) -> Result<Self, TensorError> {
         if !(0.0..=1.0).contains(&probability) || probability.is_nan() {
             return Err(TensorError::InvalidProbability);
         }
-        if probability == 0.0 { return self.zeros_like(); }
-        if probability == 1.0 { return self.full_like(1.0); }
+        if probability == 0.0 {
+            return self.zeros_like();
+        }
+        if probability == 1.0 {
+            return self.full_like(1.0);
+        }
         let threshold = SplitMix64::bernoulli_threshold(probability);
         let mut rng = SplitMix64::new(seed);
         Self::from_linear_fn_aligned(*self.shape.dims(), self.alignment(), |_| {
-            if rng.next_u64() < threshold { 1.0 } else { 0.0 }
+            if rng.next_u64() < threshold {
+                1.0
+            } else {
+                0.0
+            }
         })
     }
 
@@ -1606,8 +1720,12 @@ fn stable_linspace_value(
     delta: f64,
     inverse_intervals: f64,
 ) -> f32 {
-    if index == 0 { return start; }
-    if index == count - 1 { return end; }
+    if index == 0 {
+        return start;
+    }
+    if index == count - 1 {
+        return end;
+    }
     // For finite f32 endpoints, their difference and this interpolation are
     // finite in f64. Conversion to f32 rounds only the final stored result.
     (f64::from(start) + delta * ((index as f64) * inverse_intervals)) as f32
@@ -1636,9 +1754,9 @@ impl Tensor<f32, 1> {
         // 0..len in increasing order. Avoid maintaining a second running
         // integer and enable a simple straight-line conversion loop.
         if start == 0 && step == 1 {
-            return Self::from_linear_fn_aligned(
-                [len], DEFAULT_HOST_ALIGNMENT, |index| index as f32,
-            );
+            return Self::from_linear_fn_aligned([len], DEFAULT_HOST_ALIGNMENT, |index| {
+                index as f32
+            });
         }
         let mut current = start;
         Self::from_linear_fn_aligned([len], DEFAULT_HOST_ALIGNMENT, |_| {
@@ -1677,11 +1795,8 @@ impl Tensor<f32, 1> {
         if !randperm_length_is_exact_f32(n) {
             return Err(TensorError::InvalidRange);
         }
-        let mut out = Self::from_linear_fn_aligned(
-            [n],
-            DEFAULT_HOST_ALIGNMENT,
-            |linear| linear as f32,
-        )?;
+        let mut out =
+            Self::from_linear_fn_aligned([n], DEFAULT_HOST_ALIGNMENT, |linear| linear as f32)?;
         let mut rng = SplitMix64::new(seed);
         let data = out.as_mut_slice();
         let mut i = n;
@@ -1857,12 +1972,13 @@ impl SplitMix64 {
     }
 }
 
-pub use view::{SliceSpec, TensorView, TensorViewMut};
+pub use axis::ReductionAxes;
+pub use numerics::{
+    canonical_maximum, canonical_minimum, replace_argmax, replace_argmin, CANONICAL_QUIET_NAN32,
+};
 pub use signed_view::{SignedSliceSpec, SignedTensorView};
 pub use signed_view_mut::SignedTensorViewMut;
-pub use axis::ReductionAxes;
-pub use numerics::{canonical_maximum, canonical_minimum, replace_argmax, replace_argmin,
-                   CANONICAL_QUIET_NAN32};
+pub use view::{SliceSpec, TensorView, TensorViewMut};
 
 #[inline(always)]
 pub(crate) fn normalize_axis(axis: isize, rank: usize) -> Result<usize, TensorError> {
@@ -1899,6 +2015,9 @@ pub(crate) fn normalize_index(index: isize, dim: usize) -> Result<usize, TensorE
 }
 
 #[cfg(test)]
+#[path = "../../tests/tensor_light/unit/tensor/bernoulli_full_precision_tests.rs"]
+mod bernoulli_full_precision_tests;
+#[cfg(test)]
 #[path = "../../tests/tensor_light/unit/tensor/checked_host_allocation_tests.rs"]
 mod checked_host_allocation_tests;
 #[cfg(test)]
@@ -1907,6 +2026,3 @@ mod precomputed_bounded_rng_tests;
 #[cfg(test)]
 #[path = "../../tests/tensor_light/unit/tensor/randperm_length_boundary_tests.rs"]
 mod randperm_length_boundary_tests;
-#[cfg(test)]
-#[path = "../../tests/tensor_light/unit/tensor/bernoulli_full_precision_tests.rs"]
-mod bernoulli_full_precision_tests;

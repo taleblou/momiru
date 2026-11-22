@@ -172,7 +172,13 @@ where
                 return Err(TensorError::IndexOutOfBounds);
             }
             return Ok(Self {
-                dims, strides, origin, len: 0, capacity, low: None, high: None,
+                dims,
+                strides,
+                origin,
+                len: 0,
+                capacity,
+                low: None,
+                high: None,
             });
         }
 
@@ -187,8 +193,7 @@ where
         let mut low = origin as i128;
         let mut high = origin as i128;
         for axis in 0..R {
-            let extent = i128::try_from(dims[axis] - 1)
-                .map_err(|_| TensorError::ShapeOverflow)?;
+            let extent = i128::try_from(dims[axis] - 1).map_err(|_| TensorError::ShapeOverflow)?;
             let delta = extent
                 .checked_mul(strides[axis] as i128)
                 .ok_or(TensorError::ShapeOverflow)?;
@@ -204,39 +209,67 @@ where
         let low = usize::try_from(low).map_err(|_| TensorError::IndexOutOfBounds)?;
         let high = usize::try_from(high).map_err(|_| TensorError::IndexOutOfBounds)?;
         Ok(Self {
-            dims, strides, origin, len, capacity, low: Some(low), high: Some(high),
+            dims,
+            strides,
+            origin,
+            len,
+            capacity,
+            low: Some(low),
+            high: Some(high),
         })
     }
 
     /// Checked conversion from the legacy nonnegative-stride `Shape` metadata.
     /// New signed-stride operations should use `Layout` as their descriptor.
-    pub fn from_shape(shape: Shape<R>, origin: isize, capacity: usize)
-        -> Result<Self, TensorError>
-    {
+    pub fn from_shape(
+        shape: Shape<R>,
+        origin: isize,
+        capacity: usize,
+    ) -> Result<Self, TensorError> {
         Self::new(*shape.dims(), shape.signed_strides(), origin, capacity)
     }
 
     #[inline(always)]
-    pub const fn ndim(&self) -> usize { R }
+    pub const fn ndim(&self) -> usize {
+        R
+    }
     #[inline(always)]
-    pub const fn dims(&self) -> &[usize; R] { &self.dims }
+    pub const fn dims(&self) -> &[usize; R] {
+        &self.dims
+    }
     #[inline(always)]
-    pub const fn strides(&self) -> &[isize; R] { &self.strides }
+    pub const fn strides(&self) -> &[isize; R] {
+        &self.strides
+    }
     #[inline(always)]
-    pub const fn origin_offset(&self) -> isize { self.origin }
+    pub const fn origin_offset(&self) -> isize {
+        self.origin
+    }
     #[inline(always)]
-    pub const fn len(&self) -> usize { self.len }
+    pub const fn len(&self) -> usize {
+        self.len
+    }
     /// Logical element count, not the physical accessible span.
     #[inline(always)]
-    pub const fn numel(&self) -> usize { self.len }
+    pub const fn numel(&self) -> usize {
+        self.len
+    }
     #[inline(always)]
-    pub const fn is_empty(&self) -> bool { self.len == 0 }
+    pub const fn is_empty(&self) -> bool {
+        self.len == 0
+    }
     #[inline(always)]
-    pub const fn is_scalar(&self) -> bool { R == 0 }
+    pub const fn is_scalar(&self) -> bool {
+        R == 0
+    }
     #[inline(always)]
-    pub const fn capacity(&self) -> usize { self.capacity }
+    pub const fn capacity(&self) -> usize {
+        self.capacity
+    }
     #[inline(always)]
-    pub const fn nbytes(&self) -> usize { self.len * core::mem::size_of::<f32>() }
+    pub const fn nbytes(&self) -> usize {
+        self.len * core::mem::size_of::<f32>()
+    }
 
     #[inline]
     pub const fn reachable_bounds(&self) -> Option<(usize, usize)> {
@@ -259,7 +292,9 @@ where
     /// Pointer arithmetic is left to a subsequent, separately borrowed slice.
     #[inline]
     pub fn checked_offset(&self, index: [usize; R]) -> Result<usize, TensorError> {
-        if self.len == 0 { return Err(TensorError::IndexOutOfBounds); }
+        if self.len == 0 {
+            return Err(TensorError::IndexOutOfBounds);
+        }
         let mut offset = self.origin as i128;
         for ((coordinate, extent), stride) in index.into_iter().zip(self.dims).zip(self.strides) {
             if coordinate >= extent {
@@ -271,7 +306,9 @@ where
             offset = offset.checked_add(term).ok_or(TensorError::ShapeOverflow)?;
         }
         let offset = usize::try_from(offset).map_err(|_| TensorError::IndexOutOfBounds)?;
-        if offset >= self.capacity { return Err(TensorError::IndexOutOfBounds); }
+        if offset >= self.capacity {
+            return Err(TensorError::IndexOutOfBounds);
+        }
         Ok(offset)
     }
 
@@ -281,18 +318,26 @@ where
     }
 
     #[inline]
-    pub fn is_unique(&self) -> bool { self.internal_overlap() == InternalOverlap::None }
+    pub fn is_unique(&self) -> bool {
+        self.internal_overlap() == InternalOverlap::None
+    }
 
     #[inline]
     pub fn is_exhaustive(&self) -> bool {
         self.is_unique() && self.len == self.span_len()
     }
 
-    pub fn is_c_contiguous(&self) -> bool { self.is_forward_contiguous(false) }
-    pub fn is_f_contiguous(&self) -> bool { self.is_forward_contiguous(true) }
+    pub fn is_c_contiguous(&self) -> bool {
+        self.is_forward_contiguous(false)
+    }
+    pub fn is_f_contiguous(&self) -> bool {
+        self.is_forward_contiguous(true)
+    }
 
     fn is_forward_contiguous(&self, column_major: bool) -> bool {
-        if self.len == 0 { return true; }
+        if self.len == 0 {
+            return true;
+        }
         let mut expected = 1usize;
         for pos in 0..R {
             let axis = if column_major { pos } else { R - 1 - pos };
@@ -301,7 +346,9 @@ where
             {
                 return false;
             }
-            let Some(next) = expected.checked_mul(self.dims[axis]) else { return false; };
+            let Some(next) = expected.checked_mul(self.dims[axis]) else {
+                return false;
+            };
             expected = next;
         }
         true
@@ -310,10 +357,16 @@ where
     /// The only physical slice matching *logical* C-order. Reverse-stride and
     /// broadcast mappings are not writable/readable as a flat Rust slice.
     pub fn contiguous_range(&self) -> Result<core::ops::Range<usize>, TensorError> {
-        if !self.is_c_contiguous() { return Err(TensorError::NonContiguous); }
+        if !self.is_c_contiguous() {
+            return Err(TensorError::NonContiguous);
+        }
         let start = usize::try_from(self.origin).map_err(|_| TensorError::IndexOutOfBounds)?;
-        let end = start.checked_add(self.len).ok_or(TensorError::ShapeOverflow)?;
-        if end > self.capacity { return Err(TensorError::IndexOutOfBounds); }
+        let end = start
+            .checked_add(self.len)
+            .ok_or(TensorError::ShapeOverflow)?;
+        if end > self.capacity {
+            return Err(TensorError::IndexOutOfBounds);
+        }
         Ok(start..end)
     }
 }

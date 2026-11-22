@@ -139,76 +139,115 @@ impl SignedSliceSpec {
     pub const fn new(start: Option<isize>, stop: Option<isize>, step: isize) -> Self {
         Self { start, stop, step }
     }
-    pub const fn reverse() -> Self { Self::new(None, None, -1) }
-    pub const fn full() -> Self { Self::new(None, None, 1) }
+    pub const fn reverse() -> Self {
+        Self::new(None, None, -1)
+    }
+    pub const fn full() -> Self {
+        Self::new(None, None, 1)
+    }
 }
 
 /// Borrowed read-only host view. Negative strides and zero-stride broadcast
 /// are safe because only shared references can escape this representation.
 pub struct SignedTensorView<'a, const R: usize>
-where Rank<R>: ValidRank,
+where
+    Rank<R>: ValidRank,
 {
     layout: Layout<R>,
     storage: &'a [f32],
 }
 
 impl<'a, const R: usize> SignedTensorView<'a, R>
-where Rank<R>: ValidRank,
+where
+    Rank<R>: ValidRank,
 {
     /// Construct from an already safely borrowed backing slice, signed strides
     /// measured in f32 elements and an origin from the start of that slice.
     pub fn new(
-        dims: [usize; R], strides: [isize; R], origin: isize, storage: &'a [f32],
+        dims: [usize; R],
+        strides: [isize; R],
+        origin: isize,
+        storage: &'a [f32],
     ) -> Result<Self, TensorError> {
         let layout = Layout::new(dims, strides, origin, storage.len())?;
         Ok(Self { layout, storage })
     }
 
     #[inline(always)]
-    pub const fn ndim(&self) -> usize { R }
+    pub const fn ndim(&self) -> usize {
+        R
+    }
     #[inline(always)]
-    pub const fn dims(&self) -> &[usize; R] { self.layout.dims() }
+    pub const fn dims(&self) -> &[usize; R] {
+        self.layout.dims()
+    }
     #[inline(always)]
-    pub const fn strides(&self) -> &[isize; R] { self.layout.strides() }
+    pub const fn strides(&self) -> &[isize; R] {
+        self.layout.strides()
+    }
     #[inline(always)]
-    pub const fn len(&self) -> usize { self.layout.len() }
+    pub const fn len(&self) -> usize {
+        self.layout.len()
+    }
     /// Logical cardinality, not storage span or allocation capacity.
     #[inline(always)]
-    pub const fn numel(&self) -> usize { self.layout.numel() }
+    pub const fn numel(&self) -> usize {
+        self.layout.numel()
+    }
     #[inline(always)]
-    pub const fn is_empty(&self) -> bool { self.layout.len() == 0 }
+    pub const fn is_empty(&self) -> bool {
+        self.layout.len() == 0
+    }
     #[inline(always)]
-    pub const fn origin_offset(&self) -> isize { self.layout.origin_offset() }
+    pub const fn origin_offset(&self) -> isize {
+        self.layout.origin_offset()
+    }
 
     #[inline(always)]
-    pub const fn is_scalar(&self) -> bool { R == 0 }
+    pub const fn is_scalar(&self) -> bool {
+        R == 0
+    }
 
     /// Conservative physical overlap classification, independent of the
     /// relative logical traversal order (negative strides are supported).
     #[inline]
-    pub fn internal_overlap(&self) -> InternalOverlap { self.layout.internal_overlap() }
+    pub fn internal_overlap(&self) -> InternalOverlap {
+        self.layout.internal_overlap()
+    }
 
     #[inline]
-    pub fn is_unique(&self) -> bool { self.layout.is_unique() }
+    pub fn is_unique(&self) -> bool {
+        self.layout.is_unique()
+    }
 
     #[inline]
-    pub fn is_exhaustive(&self) -> bool { self.layout.is_exhaustive() }
+    pub fn is_exhaustive(&self) -> bool {
+        self.layout.is_exhaustive()
+    }
 
     #[inline]
-    pub fn is_c_contiguous(&self) -> bool { self.layout.is_c_contiguous() }
+    pub fn is_c_contiguous(&self) -> bool {
+        self.layout.is_c_contiguous()
+    }
 
     #[inline]
-    pub fn is_f_contiguous(&self) -> bool { self.layout.is_f_contiguous() }
+    pub fn is_f_contiguous(&self) -> bool {
+        self.layout.is_f_contiguous()
+    }
 
     #[inline(always)]
-    pub const fn layout(&self) -> &Layout<R> { &self.layout }
+    pub const fn layout(&self) -> &Layout<R> {
+        &self.layout
+    }
 
     /// Guaranteed-safe immutable element reference. Nonempty construction
     /// proved all address bounds, and this check proves the index is in shape.
     #[inline]
     pub fn try_get_ref(&self, index: [usize; R]) -> Result<&'a f32, TensorError> {
         let offset = self.layout.checked_offset(index)?;
-        self.storage.get(offset).ok_or(TensorError::IndexOutOfBounds)
+        self.storage
+            .get(offset)
+            .ok_or(TensorError::IndexOutOfBounds)
     }
 
     #[inline]
@@ -226,11 +265,15 @@ where Rank<R>: ValidRank,
     /// views. Expanded axes receive zero stride; no data is moved. Zero-size
     /// dimensions follow the rule that 0 and 1 broadcast to zero, not one.
     pub fn broadcast_to<const OUT: usize>(
-        &self, dims: [usize; OUT],
+        &self,
+        dims: [usize; OUT],
     ) -> Result<SignedTensorView<'a, OUT>, TensorError>
-    where Rank<OUT>: ValidRank,
+    where
+        Rank<OUT>: ValidRank,
     {
-        if OUT < R { return Err(TensorError::ShapeMismatch); }
+        if OUT < R {
+            return Err(TensorError::ShapeMismatch);
+        }
         let leading = OUT - R;
         let mut strides = [0isize; OUT];
         for axis in leading..OUT {
@@ -249,9 +292,11 @@ where Rank<R>: ValidRank,
     /// Insert one length-one axis without copying data. Rank nine is rejected
     /// by the sealed Rank witness and explicit OUT/R relation.
     pub fn unsqueeze<const OUT: usize>(
-        &self, axis: usize,
+        &self,
+        axis: usize,
     ) -> Result<SignedTensorView<'a, OUT>, TensorError>
-    where Rank<OUT>: ValidRank,
+    where
+        Rank<OUT>: ValidRank,
     {
         if R == 8 || OUT != R + 1 || axis > R {
             return Err(TensorError::AxisOutOfBounds);
@@ -274,9 +319,11 @@ where Rank<R>: ValidRank,
 
     /// Remove exactly one singleton axis while retaining the same owner.
     pub fn squeeze_axis<const OUT: usize>(
-        &self, axis: usize,
+        &self,
+        axis: usize,
     ) -> Result<SignedTensorView<'a, OUT>, TensorError>
-    where Rank<OUT>: ValidRank,
+    where
+        Rank<OUT>: ValidRank,
     {
         if R == 0 || OUT + 1 != R || axis >= R || self.layout.dims()[axis] != 1 {
             return Err(TensorError::ShapeMismatch);
@@ -298,14 +345,25 @@ where Rank<R>: ValidRank,
     /// matches one contiguous host region; reverse/permuted/gapped views are
     /// never silently materialized or reinterpreted with different semantics.
     pub fn reshape_view<const OUT: usize>(
-        &self, dims: [usize; OUT],
+        &self,
+        dims: [usize; OUT],
     ) -> Result<SignedTensorView<'a, OUT>, TensorError>
-    where Rank<OUT>: ValidRank,
+    where
+        Rank<OUT>: ValidRank,
     {
-        if !self.is_c_contiguous() { return Err(TensorError::NonContiguous); }
+        if !self.is_c_contiguous() {
+            return Err(TensorError::NonContiguous);
+        }
         let shape = super::Shape::<OUT>::contiguous(dims)?;
-        if shape.len() != self.layout.len() { return Err(TensorError::ShapeMismatch); }
-        SignedTensorView::new(dims, shape.signed_strides(), self.layout.origin_offset(), self.storage)
+        if shape.len() != self.layout.len() {
+            return Err(TensorError::ShapeMismatch);
+        }
+        SignedTensorView::new(
+            dims,
+            shape.signed_strides(),
+            self.layout.origin_offset(),
+            self.storage,
+        )
     }
 
     pub fn permute(&self, axes: [usize; R]) -> Result<Self, TensorError> {
@@ -314,7 +372,9 @@ where Rank<R>: ValidRank,
         let mut strides = [0isize; R];
         for dst in 0..R {
             let src = axes[dst];
-            if src >= R || seen[src] { return Err(TensorError::InvalidPermutation); }
+            if src >= R || seen[src] {
+                return Err(TensorError::InvalidPermutation);
+            }
             seen[src] = true;
             dims[dst] = self.layout.dims()[src];
             strides[dst] = self.layout.strides()[src];
@@ -323,9 +383,11 @@ where Rank<R>: ValidRank,
     }
 
     pub fn transpose(&self, a: usize, b: usize) -> Result<Self, TensorError> {
-        if a >= R || b >= R { return Err(TensorError::AxisOutOfBounds); }
+        if a >= R || b >= R {
+            return Err(TensorError::AxisOutOfBounds);
+        }
         let mut axes = core::array::from_fn(|i| i);
-        axes.swap(a,b);
+        axes.swap(a, b);
         self.permute(axes)
     }
 
@@ -343,13 +405,19 @@ where Rank<R>: ValidRank,
     /// Move a source axis to the requested destination while retaining the
     /// relative order of all other axes. This is a pure metadata operation.
     pub fn movedim(&self, from: usize, to: usize) -> Result<Self, TensorError> {
-        if from >= R || to >= R { return Err(TensorError::AxisOutOfBounds); }
+        if from >= R || to >= R {
+            return Err(TensorError::AxisOutOfBounds);
+        }
         let mut axes = core::array::from_fn(|axis| axis);
         let moving = axes[from];
         if from < to {
-            for axis in from..to { axes[axis] = axes[axis + 1]; }
+            for axis in from..to {
+                axes[axis] = axes[axis + 1];
+            }
         } else {
-            for axis in (to + 1..=from).rev() { axes[axis] = axes[axis - 1]; }
+            for axis in (to + 1..=from).rev() {
+                axes[axis] = axes[axis - 1];
+            }
         }
         axes[to] = moving;
         self.permute(axes)
@@ -359,19 +427,31 @@ where Rank<R>: ValidRank,
     /// result we preserve an abstract origin without constructing a pointer,
     /// including when another dimension is zero and extent/stride are huge.
     pub fn narrow(&self, axis: usize, start: usize, length: usize) -> Result<Self, TensorError> {
-        if axis >= R { return Err(TensorError::AxisOutOfBounds); }
-        let end = start.checked_add(length).ok_or(TensorError::ShapeOverflow)?;
-        if end > self.layout.dims()[axis] { return Err(TensorError::IndexOutOfBounds); }
+        if axis >= R {
+            return Err(TensorError::AxisOutOfBounds);
+        }
+        let end = start
+            .checked_add(length)
+            .ok_or(TensorError::ShapeOverflow)?;
+        if end > self.layout.dims()[axis] {
+            return Err(TensorError::IndexOutOfBounds);
+        }
         let mut dims = *self.layout.dims();
         dims[axis] = length;
         if dims.contains(&0) {
-            return Self::new(dims, *self.layout.strides(), self.layout.origin_offset(), self.storage);
+            return Self::new(
+                dims,
+                *self.layout.strides(),
+                self.layout.origin_offset(),
+                self.storage,
+            );
         }
         let delta = (start as i128)
             .checked_mul(self.layout.strides()[axis] as i128)
             .ok_or(TensorError::ShapeOverflow)?;
         let origin = (self.layout.origin_offset() as i128)
-            .checked_add(delta).ok_or(TensorError::ShapeOverflow)?;
+            .checked_add(delta)
+            .ok_or(TensorError::ShapeOverflow)?;
         let origin = isize::try_from(origin).map_err(|_| TensorError::ShapeOverflow)?;
         Self::new(dims, *self.layout.strides(), origin, self.storage)
     }
@@ -381,16 +461,18 @@ where Rank<R>: ValidRank,
     /// may be transposed, broadcast, or gapped. For an empty view, a non-affine
     /// group uses stride zero and its merged extent must still fit in usize.
     pub fn flatten_view<const OUT: usize>(
-        &self, start: usize, end: usize,
+        &self,
+        start: usize,
+        end: usize,
     ) -> Result<SignedTensorView<'a, OUT>, TensorError>
-    where Rank<OUT>: ValidRank,
+    where
+        Rank<OUT>: ValidRank,
     {
         if R == 0 || start > end || end >= R || OUT != R - (end - start) {
             return Err(TensorError::ShapeMismatch);
         }
-        let (merged, merged_stride) = super::collapse_flatten_group(
-            self.layout.dims(), self.layout.strides(), start, end,
-        )?;
+        let (merged, merged_stride) =
+            super::collapse_flatten_group(self.layout.dims(), self.layout.strides(), start, end)?;
         let mut dims = [0usize; OUT];
         let mut strides = [0isize; OUT];
         let mut dst = 0usize;
@@ -411,22 +493,32 @@ where Rank<R>: ValidRank,
     /// Python-like half-open slicing, including negative step. `None` stop
     /// for step<0 means the sentinel -1 (not the explicit index -1).
     pub fn slice_axis(&self, axis: usize, spec: SignedSliceSpec) -> Result<Self, TensorError> {
-        if axis >= R { return Err(TensorError::AxisOutOfBounds); }
-        if spec.step == 0 { return Err(TensorError::InvalidSliceStep); }
+        if axis >= R {
+            return Err(TensorError::AxisOutOfBounds);
+        }
+        if spec.step == 0 {
+            return Err(TensorError::InvalidSliceStep);
+        }
         let n = i128::try_from(self.layout.dims()[axis]).map_err(|_| TensorError::ShapeOverflow)?;
         let step = i128::from(spec.step as i64);
         let (start, stop) = if step > 0 {
-            (normal_slice_endpoint(spec.start, n, 0, 0, n),
-             normal_slice_endpoint(spec.stop, n, n, 0, n))
+            (
+                normal_slice_endpoint(spec.start, n, 0, 0, n),
+                normal_slice_endpoint(spec.stop, n, n, 0, n),
+            )
         } else {
-            (normal_slice_endpoint(spec.start, n, n-1, -1, n-1),
-             normal_slice_endpoint(spec.stop, n, -1, -1, n-1))
+            (
+                normal_slice_endpoint(spec.start, n, n - 1, -1, n - 1),
+                normal_slice_endpoint(spec.stop, n, -1, -1, n - 1),
+            )
         };
         let count = if step > 0 && start < stop {
-            ((stop - start - 1)/step + 1) as usize
+            ((stop - start - 1) / step + 1) as usize
         } else if step < 0 && start > stop {
-            ((start - stop - 1)/(-step) + 1) as usize
-        } else { 0 };
+            ((start - stop - 1) / (-step) + 1) as usize
+        } else {
+            0
+        };
         let mut dims = *self.layout.dims();
         dims[axis] = count;
         let mut strides = *self.layout.strides();
@@ -436,7 +528,8 @@ where Rank<R>: ValidRank,
             return Self::new(dims, strides, self.layout.origin_offset(), self.storage);
         }
         let orig = i128::from(self.layout.origin_offset() as i64);
-        let delta = start.checked_mul(i128::from(self.layout.strides()[axis] as i64))
+        let delta = start
+            .checked_mul(i128::from(self.layout.strides()[axis] as i64))
             .ok_or(TensorError::ShapeOverflow)?;
         let new_origin = orig.checked_add(delta).ok_or(TensorError::ShapeOverflow)?;
         // A singleton has no within-axis motion. Canonical stride zero avoids
@@ -447,21 +540,34 @@ where Rank<R>: ValidRank,
             strides[axis] = 0;
         } else {
             let new_stride = i128::from(self.layout.strides()[axis] as i64)
-                .checked_mul(step).ok_or(TensorError::ShapeOverflow)?;
+                .checked_mul(step)
+                .ok_or(TensorError::ShapeOverflow)?;
             strides[axis] = isize::try_from(new_stride).map_err(|_| TensorError::ShapeOverflow)?;
         }
-        Self::new(dims, strides,
-            isize::try_from(new_origin).map_err(|_| TensorError::ShapeOverflow)?, self.storage)
+        Self::new(
+            dims,
+            strides,
+            isize::try_from(new_origin).map_err(|_| TensorError::ShapeOverflow)?,
+            self.storage,
+        )
     }
 }
 
 /// The semantics of explicit negative endpoints differ from omitted endpoints.
-fn normal_slice_endpoint(value: Option<isize>, n: i128, default: i128, low: i128, high: i128) -> i128 {
+fn normal_slice_endpoint(
+    value: Option<isize>,
+    n: i128,
+    default: i128,
+    low: i128,
+    high: i128,
+) -> i128 {
     match value {
         None => default,
         Some(raw) => {
             let mut idx = i128::from(raw as i64);
-            if idx < 0 { idx += n; }
+            if idx < 0 {
+                idx += n;
+            }
             idx.clamp(low, high)
         }
     }
@@ -479,7 +585,8 @@ where
 }
 
 impl<const R: usize> Tensor<f32, R>
-where Rank<R>: ValidRank,
+where
+    Rank<R>: ValidRank,
 {
     pub fn signed_view(&self) -> Result<SignedTensorView<'_, R>, TensorError> {
         self.view().signed_view()
@@ -492,85 +599,105 @@ where Rank<R>: ValidRank,
     /// Direct Tensor-first read-only signed slice. This is *metadata only*;
     /// it never copies data, compiles a kernel, or resolves a new execution plan.
     #[inline]
-    pub fn slice_axis_signed(&self, axis: usize, spec: SignedSliceSpec)
-        -> Result<SignedTensorView<'_, R>, TensorError>
-    {
+    pub fn slice_axis_signed(
+        &self,
+        axis: usize,
+        spec: SignedSliceSpec,
+    ) -> Result<SignedTensorView<'_, R>, TensorError> {
         self.signed_view()?.slice_axis(axis, spec)
     }
 
     /// Reverse one axis as a checked, read-only zero-copy view, including
     /// negative-stride layouts. The owned Tensor remains the primary API.
     #[inline]
-    pub fn flip_signed(&self, axis: usize)
-        -> Result<SignedTensorView<'_, R>, TensorError>
-    {
+    pub fn flip_signed(&self, axis: usize) -> Result<SignedTensorView<'_, R>, TensorError> {
         self.signed_view()?.flip(axis)
     }
 
     /// Signed-layout, read-only swap of two axes; no implicit materialization.
     #[inline]
-    pub fn swapaxes_signed(&self, a: usize, b: usize)
-        -> Result<SignedTensorView<'_, R>, TensorError>
-    {
+    pub fn swapaxes_signed(
+        &self,
+        a: usize,
+        b: usize,
+    ) -> Result<SignedTensorView<'_, R>, TensorError> {
         self.signed_view()?.swapaxes(a, b)
     }
 
     #[inline]
-    pub fn permute_signed(&self, axes: [usize; R])
-        -> Result<SignedTensorView<'_, R>, TensorError>
-    {
+    pub fn permute_signed(&self, axes: [usize; R]) -> Result<SignedTensorView<'_, R>, TensorError> {
         self.signed_view()?.permute(axes)
     }
 
     #[inline]
-    pub fn transpose_signed(&self, a: usize, b: usize)
-        -> Result<SignedTensorView<'_, R>, TensorError>
-    {
+    pub fn transpose_signed(
+        &self,
+        a: usize,
+        b: usize,
+    ) -> Result<SignedTensorView<'_, R>, TensorError> {
         self.signed_view()?.transpose(a, b)
     }
 
     #[inline]
-    pub fn movedim_signed(&self, from: usize, to: usize)
-        -> Result<SignedTensorView<'_, R>, TensorError>
-    {
+    pub fn movedim_signed(
+        &self,
+        from: usize,
+        to: usize,
+    ) -> Result<SignedTensorView<'_, R>, TensorError> {
         self.signed_view()?.movedim(from, to)
     }
 
     #[inline]
-    pub fn narrow_signed(&self, axis: usize, start: usize, length: usize)
-        -> Result<SignedTensorView<'_, R>, TensorError>
-    {
+    pub fn narrow_signed(
+        &self,
+        axis: usize,
+        start: usize,
+        length: usize,
+    ) -> Result<SignedTensorView<'_, R>, TensorError> {
         self.signed_view()?.narrow(axis, start, length)
     }
 
     #[inline]
-    pub fn flatten_signed<const OUT: usize>(&self, start: usize, end: usize)
-        -> Result<SignedTensorView<'_, OUT>, TensorError>
-    where Rank<OUT>: ValidRank,
+    pub fn flatten_signed<const OUT: usize>(
+        &self,
+        start: usize,
+        end: usize,
+    ) -> Result<SignedTensorView<'_, OUT>, TensorError>
+    where
+        Rank<OUT>: ValidRank,
     {
         self.signed_view()?.flatten_view::<OUT>(start, end)
     }
 
     #[inline]
-    pub fn reshape_signed<const OUT: usize>(&self, dims: [usize; OUT])
-        -> Result<SignedTensorView<'_, OUT>, TensorError>
-    where Rank<OUT>: ValidRank,
+    pub fn reshape_signed<const OUT: usize>(
+        &self,
+        dims: [usize; OUT],
+    ) -> Result<SignedTensorView<'_, OUT>, TensorError>
+    where
+        Rank<OUT>: ValidRank,
     {
         self.signed_view()?.reshape_view::<OUT>(dims)
     }
 
     #[inline]
-    pub fn unsqueeze_signed<const OUT: usize>(&self, axis: usize)
-        -> Result<SignedTensorView<'_, OUT>, TensorError>
-    where Rank<OUT>: ValidRank,
+    pub fn unsqueeze_signed<const OUT: usize>(
+        &self,
+        axis: usize,
+    ) -> Result<SignedTensorView<'_, OUT>, TensorError>
+    where
+        Rank<OUT>: ValidRank,
     {
         self.signed_view()?.unsqueeze::<OUT>(axis)
     }
 
     #[inline]
-    pub fn squeeze_axis_signed<const OUT: usize>(&self, axis: usize)
-        -> Result<SignedTensorView<'_, OUT>, TensorError>
-    where Rank<OUT>: ValidRank,
+    pub fn squeeze_axis_signed<const OUT: usize>(
+        &self,
+        axis: usize,
+    ) -> Result<SignedTensorView<'_, OUT>, TensorError>
+    where
+        Rank<OUT>: ValidRank,
     {
         self.signed_view()?.squeeze_axis::<OUT>(axis)
     }
@@ -578,9 +705,12 @@ where Rank<R>: ValidRank,
     /// Broadcast remains read-only when zero strides create overlapping
     /// logical indices. There is no implicit output allocation or copy.
     #[inline]
-    pub fn broadcast_signed<const OUT: usize>(&self, dims: [usize; OUT])
-        -> Result<SignedTensorView<'_, OUT>, TensorError>
-    where Rank<OUT>: ValidRank,
+    pub fn broadcast_signed<const OUT: usize>(
+        &self,
+        dims: [usize; OUT],
+    ) -> Result<SignedTensorView<'_, OUT>, TensorError>
+    where
+        Rank<OUT>: ValidRank,
     {
         self.signed_view()?.broadcast_to::<OUT>(dims)
     }
@@ -589,9 +719,13 @@ where Rank<R>: ValidRank,
     /// from the canonical Tensor API. Bounds and origin are checked against
     /// the owned allocation; zero-stride broadcasts are read-only.
     pub fn as_strided_signed<const OUT: usize>(
-        &self, dims: [usize; OUT], strides: [isize; OUT], origin: isize,
+        &self,
+        dims: [usize; OUT],
+        strides: [isize; OUT],
+        origin: isize,
     ) -> Result<SignedTensorView<'_, OUT>, TensorError>
-    where Rank<OUT>: ValidRank,
+    where
+        Rank<OUT>: ValidRank,
     {
         SignedTensorView::new(dims, strides, origin, self.as_slice())
     }
